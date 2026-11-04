@@ -75,6 +75,7 @@ h2 { margin: 0; font-size: 1.2rem; line-height: 1.25; text-wrap: balance; }
 .eyebrow { font-family: var(--f-mono); font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .hint { color: var(--muted); font-size: .92rem; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.stack { display: flex; flex-direction: column; gap: 10px; }
 .row > input { flex: 1 1 160px; min-width: 0; }
 .spread { justify-content: space-between; }
 input[type=text] {
@@ -298,7 +299,7 @@ details.more[open] summary::before { content: "▾ "; }
   let acts = LS.get("fh.acts", []);
   let room, peers = [];
   let connected = false;
-  const ui = { ideaFor: null, ideaPick: [], giveArmed: false, sheet: false, tab: "a", editingName: false };
+  const ui = { ideaFor: null, ideaPick: [], giveArmed: false, armed: null, sheet: false, tab: "a", editingName: false };
   let readUpTo = LS.get("fh.read", {});
   let lastSeen = {};
 
@@ -398,6 +399,7 @@ details.more[open] summary::before { content: "▾ "; }
         const nm = clean(a.name, 20) || "Player";
         const p = player(g, pid);
         if (p) { if (p.name !== nm) { sys(g, `${p.name} is now ${nm}`); p.name = nm; } return true; }
+        if ((g.kicked || []).includes(pid)) return false;
         if (g.phase === "lobby" && g.players.length < MAXP) { g.players.push({ pid, name: nm }); sys(g, `${nm} joined`, 1); return true; }
         return false;
       }
@@ -451,6 +453,28 @@ details.more[open] summary::before { content: "▾ "; }
         if (g.phase !== "play" || !inGame || isDone(g, pid)) return false;
         finishPlayer(g, pid, false);
         if (!checkEnd(g) && g.turn === pid) { nextTurn(g); sys(g, `${nameOf(g, g.turn)}'s turn.`); }
+        return true;
+      case "kick": {
+        const who = a.who;
+        if (pid !== g.host || who === g.host || !player(g, who)) return false;
+        const nm = nameOf(g, who);
+        if (g.phase === "play" && g.turn === who) nextTurn(g);
+        g.players = g.players.filter(p => p.pid !== who);
+        delete g.sec[who];
+        g.fin = g.fin.filter(f => f.pid !== who);
+        g.kicked = (g.kicked || []).concat([who]).slice(-20);
+        const q = g.qa[g.qa.length - 1];
+        if (q && !q.res && q.p === who) q.res = "n";
+        if (q && q.a) delete q.a[who];
+        sys(g, `${nm} was removed by the host`, 1);
+        if (g.phase === "pick" && g.players.length && g.players.every(p => g.sec[p.pid])) { g.phase = "play"; g.turn = g.players[0].pid; sys(g, `Everyone has a name. ${nameOf(g, g.turn)} goes first.`, 1); }
+        if (g.phase === "play") { if (g.turn === who || !player(g, g.turn)) nextTurn(g); resolveQuestion(g); checkEnd(g); }
+        return true;
+      }
+      case "restart":
+        if (pid !== g.host || g.phase === "lobby") return false;
+        g.phase = "lobby"; g.sec = {}; g.qa = []; g.gs = []; g.fin = []; g.turn = null;
+        sys(g, "The host restarted. Back in the lobby.", 1);
         return true;
       case "again":
         if (g.phase === "done" && inGame) { g.phase = "pick"; g.sec = {}; g.qa = []; g.gs = []; g.fin = []; g.turn = null; g.players.push(g.players.shift()); sys(g, "New game. Pick new names."); return true; }
@@ -594,6 +618,14 @@ details.more[open] summary::before { content: "▾ "; }
       ui.giveArmed = false; send({ t: "giveup" });
     },
     again() { send({ t: "again" }); },
+    arm(el) {
+      const k = el.dataset.key;
+      if (ui.armed !== k) { ui.armed = k; render(); clearTimeout(ui.armT); ui.armT = setTimeout(() => { ui.armed = null; render(); }, 4000); return; }
+      ui.armed = null;
+      if (k === "end") handlers.leave();
+      else if (k === "restart") send({ t: "restart" });
+      else if (k.startsWith("kick:")) send({ t: "kick", who: k.slice(5) });
+    },
     chat(el) {
       const id = el.dataset.for || el.id; const x = clean(val(id), 200); if (!x) return;
       send({ t: "chat", k: el.dataset.k, about: el.dataset.about || undefined, x }); clearVal(id);
@@ -674,7 +706,7 @@ details.more[open] summary::before { content: "▾ "; }
       return topBar() + `<section class="panel"><h2>${esc(myGidHost || "The host")} is away</h2><p class="hint">The game lives on the host's phone. When they open the link again, you're straight back in.</p><div class="waiting">${dotsWait}Waiting for them</div><div class="row"><button class="ghost" data-act="leave">Leave this game</button></div></section>`;
     }
     if (!g) {
-      const open = hostGames().filter(x => !x.g.ended && (x.g.phase === "lobby" || x.g.players.some(p => p.pid === me.pid)));
+      const open = hostGames().filter(x => !x.g.ended && !(x.g.kicked || []).includes(me.pid) && (x.g.phase === "lobby" || x.g.players.some(p => p.pid === me.pid)));
       return topBar() +
         (open.length ? `<section class="panel"><span class="eyebrow">Join a friend</span>${open.map(x => `<div class="row spread"><span class="pn"><span class="av" style="--c:${COLORS[0]}">${esc(initials(x.hostName))}</span><span><strong>${esc(x.hostName)}'s game</strong><br><span class="hint">${x.g.players.length} joined</span></span></span><button class="note-btn" data-act="join" data-gid="${esc(x.g.id)}" data-host="${esc(x.hostName)}">Join</button></div>`).join("")}</section>` : "") +
         `<section class="panel ${open.length ? "flat" : ""}"><h2>${open.length ? "Or host your own" : "Host a game"}</h2><p class="hint">One person hosts. The others open this same link, and the game appears on their screen with a Join button.</p><button class="${open.length ? "ghost" : "note-btn"} wide" data-act="host">Host a new game</button></section>` +
@@ -685,6 +717,7 @@ details.more[open] summary::before { content: "▾ "; }
     const mine = !!player(g, me.pid);
     const isHost = g.host === me.pid;
     if (!mine) {
+      if ((g.kicked || []).includes(me.pid)) return topBar() + `<section class="panel"><h2>The host removed you from this game</h2><div class="row"><button data-act="leave">Back to start</button></div></section>`;
       if (g.phase === "lobby") return topBar() + `<section class="panel"><div class="waiting">${dotsWait}Taking a seat at ${esc(myGidHost)}'s game…</div><button class="link" data-act="leave">Cancel</button></section>`;
       return topBar() + `<section class="panel"><h2>That game started without you</h2><p class="hint">Ask the host to start a new one after this game.</p><div class="row"><button class="ghost" data-act="leave">Back</button></div></section>`;
     }
@@ -752,9 +785,21 @@ details.more[open] summary::before { content: "▾ "; }
         <p class="hint">Ranked by who guessed first.</p>${scoreTable(g)}
         <button class="note-btn wide" data-act="again">Play again</button><button class="link" data-act="leave">${isHost ? "End game" : "Leave"}</button></section>`;
     }
+    if (isHost && g.phase !== "lobby") body += hostControls(g);
+    else if (isHost && g.players.length > 1) body += hostControls(g);
     return topBar() + (hostAway ? `<section class="panel notice"><p><strong>${esc(nameOf(g, g.host))}</strong> (the host) dropped out. The game picks up when they open the link again.</p></section>` : "") + body;
   }
 
+  function armBtn(key, label, sure, cls = "ghost", extra = "") {
+    const on = ui.armed === key;
+    return `<button class="${on ? "no" : cls}" data-act="arm" data-key="${esc(key)}" ${extra}>${on ? sure : label}</button>`;
+  }
+  function hostControls(g) {
+    return `<section class="panel"><span class="eyebrow">Host controls</span>
+      <div class="stack">${g.players.filter(p => p.pid !== me.pid).map(p => `<div class="row spread"><span class="pn">${av(g, p.pid, "sm")}<span>${esc(p.name)}${online(p.pid) ? "" : ' <span class="hint">· away</span>'}</span></span>${armBtn("kick:" + p.pid, "Remove", "Tap to confirm")}</div>`).join("")}</div>
+      <div class="row">${g.phase !== "lobby" ? armBtn("restart", "Back to lobby", "Tap again to restart") : ""}${armBtn("end", "End game for everyone", "Tap again to end")}</div>
+      <p class="hint">Removing someone takes their seat away. Back to lobby keeps everyone and clears the names.</p></section>`;
+  }
   function layer(g) {
     if (!g || g.ended || !player(g, me.pid)) return "";
     const tabs = tabsFor(g);
