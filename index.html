@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffe14d">
+<title>Who's On My Forehead</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: one phone-width column; the sticky note is the hero object, everything else is quiet desk paper around it. */
+:root {
+  --ground: #dde4ec;
+  --card: #f6f8fb;
+  --ink: #17202b;
+  --muted: #586577;
+  --line: #c3cdd9;
+  --note: #ffe14d;
+  --note-shade: #f0cf2e;
+  --note-ink: #2b2508;
+  --accent: #2f5bd3;
+  --accent-ink: #ffffff;
+  --yes: #198a5c;
+  --yes-soft: #d5f0e3;
+  --no: #c93a52;
+  --no-soft: #f7dbe0;
+  --wait: #8a95a5;
+  --f-display: "Permanent Marker", "Marker Felt", "Comic Sans MS", cursive;
+  --f-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #10161e; --card: #19212c; --ink: #e7ecf3; --muted: #95a2b4; --line: #2c3746;
+    --note: #f3d94a; --note-shade: #dcc136; --note-ink: #231e05;
+    --accent: #7c9cff; --accent-ink: #0d1320;
+    --yes: #43c98f; --yes-soft: #163829; --no: #ff7088; --no-soft: #3d1a22; --wait: #6c7889;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #10161e; --card: #19212c; --ink: #e7ecf3; --muted: #95a2b4; --line: #2c3746;
+  --note: #f3d94a; --note-shade: #dcc136; --note-ink: #231e05;
+  --accent: #7c9cff; --accent-ink: #0d1320;
+  --yes: #43c98f; --yes-soft: #163829; --no: #ff7088; --no-soft: #3d1a22; --wait: #6c7889;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body {
+  background: var(--ground); color: var(--ink);
+  font-family: var(--f-body); font-size: 16px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 18px 40px;
+}
+#app { max-width: 540px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+header { display: flex; flex-direction: column; gap: 6px; }
+h1 { font-family: var(--f-display); font-weight: 400; font-size: 1.9rem; line-height: 1.05; margin: 0; letter-spacing: .01em; text-wrap: balance; }
+.sub { color: var(--muted); font-size: .95rem; margin: 0; }
+h2 { font-size: 1.15rem; margin: 0; text-wrap: balance; }
+p { margin: 0; }
+.panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.stack { display: flex; flex-direction: column; gap: 10px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row > input { flex: 1 1 180px; min-width: 0; }
+label { font-weight: 700; font-size: .95rem; }
+.hint { color: var(--muted); font-size: .9rem; }
+.eyebrow { font-family: var(--f-mono); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+input[type=text] {
+  font: inherit; color: var(--ink); background: var(--ground); border: 1.5px solid var(--line);
+  border-radius: 10px; padding: 12px 12px; width: 100%;
+}
+input[type=text]:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); border-color: var(--accent); }
+button {
+  font: inherit; font-weight: 700; border: 0; border-radius: 10px; padding: 12px 16px; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink); min-height: 46px;
+}
+button.ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--line); }
+button.link { background: none; color: var(--muted); padding: 6px 0; min-height: 0; font-weight: 400; text-decoration: underline; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
+.yesno { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.yesno button { font-size: 1.25rem; min-height: 64px; }
+button.yes { background: var(--yes); color: #fff; }
+button.no { background: var(--no); color: #fff; }
+
+/* the sticky note */
+.note-wrap { display: flex; justify-content: center; padding: 6px 0 2px; }
+.note {
+  width: min(300px, 100%); aspect-ratio: 1 / .78; max-width: 100%;
+  background: linear-gradient(180deg, var(--note) 0%, var(--note) 82%, var(--note-shade) 100%);
+  color: var(--note-ink); transform: rotate(-2.2deg);
+  box-shadow: 0 14px 24px -14px rgba(0,0,0,.45), 0 2px 0 rgba(0,0,0,.06);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  padding: 18px; text-align: center; position: relative;
+}
+.note::before { content: ""; position: absolute; top: -10px; left: 50%; width: 86px; height: 22px; transform: translateX(-50%) rotate(3deg); background: color-mix(in srgb, var(--card) 70%, transparent); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.note .who { font-family: var(--f-display); font-size: clamp(1.6rem, 7vw, 2.3rem); line-height: 1.1; overflow-wrap: anywhere; }
+.note .q { font-family: var(--f-display); font-size: 4.5rem; line-height: 1; }
+.note .cap { font-size: .9rem; opacity: .75; }
+
+.players { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); font-size: .9rem; max-width: 100%; }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--wait); flex: none; }
+.chip.on .dot { background: var(--yes); }
+.chip.turn { border-color: var(--ink); font-weight: 700; }
+.chip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.qlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.qlist li { display: grid; grid-template-columns: 2.2em 1fr; gap: 4px 8px; align-items: start; padding: 10px 0; border-top: 1px solid var(--line); }
+.qlist li:first-child { border-top: 0; padding-top: 0; }
+.qn { font-family: var(--f-mono); color: var(--muted); font-size: .85rem; padding-top: 2px; font-variant-numeric: tabular-nums; }
+.qt { min-width: 0; overflow-wrap: anywhere; }
+.ans { grid-column: 2; display: flex; gap: 6px; flex-wrap: wrap; }
+.pill { font-size: .8rem; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: var(--ground); color: var(--muted); border: 1px solid var(--line); }
+.pill.y { background: var(--yes-soft); color: var(--yes); border-color: transparent; }
+.pill.n { background: var(--no-soft); color: var(--no); border-color: transparent; }
+.ask-now { font-size: 1.25rem; font-weight: 700; overflow-wrap: anywhere; }
+.counter { font-family: var(--f-mono); font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.guess { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid var(--line); }
+.guess:first-child { border-top: 0; }
+.guess .gt { min-width: 0; overflow-wrap: anywhere; }
+.ok { color: var(--yes); font-weight: 700; }
+.bad { color: var(--no); font-weight: 700; }
+.ideas { display: flex; flex-wrap: wrap; gap: 6px; }
+.ideas button { background: var(--ground); color: var(--ink); border: 1px solid var(--line); font-weight: 400; min-height: 36px; padding: 6px 10px; font-size: .9rem; }
+table.score { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.score th, table.score td { text-align: left; padding: 8px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+table.score th { font-size: .8rem; color: var(--muted); font-weight: 400; border-top: 0; }
+table.score td.nm { overflow-wrap: anywhere; }
+.big { font-family: var(--f-display); font-size: 1.6rem; line-height: 1.15; overflow-wrap: anywhere; }
+.notice { border-left: 4px solid var(--accent); }
+.foot { color: var(--muted); font-size: .85rem; text-align: center; }
+@media (prefers-reduced-motion: no-preference) {
+  .note { animation: drop .35s ease-out both; }
+  @keyframes drop { from { transform: rotate(-6deg) translateY(-8px); } to { transform: rotate(-2.2deg); } }
+}
+</style>
+</head>
+<body>
+<div id="app"><header><h1>Who's On My Forehead</h1><p class="sub">Loading the game…</p></header></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+(() => {
+  "use strict";
+  const MAXQ = 20, MAXG = 3, MAXP = 5;
+  const IDEAS = ["Taylor Swift","Lionel Messi","Cristiano Ronaldo","Albert Einstein","Barack Obama","Elon Musk","Shah Rukh Khan","Beyoncé","Michael Jackson","Leonardo DiCaprio","Queen Elizabeth II","Mahatma Gandhi","Nelson Mandela","Virat Kohli","Serena Williams","Steve Jobs","Marie Curie","Usain Bolt","Rihanna","Oprah Winfrey","Kumar Sangakkara","Muttiah Muralitharan","Sanath Jayasuriya","A. R. Rahman","Jackie Chan","Lady Gaga","Charlie Chaplin","Freddie Mercury","Mark Zuckerberg","Kim Kardashian","Pope Francis","Bob Marley","Dwayne Johnson","Adele","Mr. Beast","Lewis Hamilton"];
+
+  // ---------- storage (per-viewer convenience only) ----------
+  const LS = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  };
+  const rid = (n = 10) => Array.from(crypto.getRandomValues(new Uint8Array(n)), b => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
+
+  const me = { pid: LS.get("fh.pid", null) || rid(), name: LS.get("fh.name", "") };
+  LS.set("fh.pid", me.pid);
+  let hosted = LS.get("fh.hosted", null);           // the game object, when I am the host
+  if (hosted && Date.now() - (hosted.t || 0) > 12 * 3600e3) { hosted = null; LS.set("fh.hosted", null); }
+  let myGid = LS.get("fh.gid", null);               // game I joined as a non-host
+  let myGidHost = LS.get("fh.gidHost", "");
+  let acts = LS.get("fh.acts", []);
+  let room = undefined, peers = [];
+  let ideaOpen = false, ideaPick = [], giveArmed = false;
+
+  // ---------- helpers ----------
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const clean = (s, n) => String(s ?? "").replace(/[\u0000-\u001f\u007f​-‏‪-‮⁠-⁤﻿]/g, "").replace(/\s+/g, " ").trim().slice(0, n);
+  const keyOf = g => g.id + ":" + g.r;
+  function obf(s, k) { return [...s].map((c, i) => (c.codePointAt(0) ^ (k.charCodeAt(i % k.length) * 7)).toString(36)).join("."); }
+  function deobf(o, k) { try { return o.split(".").map((x, i) => String.fromCodePoint(parseInt(x, 36) ^ (k.charCodeAt(i % k.length) * 7))).join(""); } catch { return ""; } }
+  const norm = s => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, " ").replace(/\s+/g, " ").trim().replace(/^the /, "");
+  function lev(a, b) { // edit distance, counting a swapped pair of letters as one typo
+    const m = a.length, n = b.length; if (!m) return n; if (!n) return m;
+    const d = Array.from({ length: m + 1 }, (_, i) => [i].concat(Array(n).fill(0)));
+    for (let j = 1; j <= n; j++) d[0][j] = j;
+    for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) {
+      const c = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + c);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+    return d[m][n];
+  }
+  function matches(guess, secret) {
+    const g = norm(guess), s = norm(secret);
+    if (!g || !s) return false;
+    if (g === s || g.replace(/ /g, "") === s.replace(/ /g, "")) return true;
+    const tol = s.length >= 10 ? 2 : s.length >= 5 ? 1 : 0;
+    if (lev(g, s) <= tol) return true;
+    const parts = s.split(" "), last = parts[parts.length - 1];
+    if (parts.length > 1 && last.length >= 4 && lev(g, last) <= (last.length >= 7 ? 1 : 0)) return true;
+    return false;
+  }
+  const nameOf = (g, pid) => (g.players.find(p => p.pid === pid) || {}).name || "Someone";
+  const online = pid => pid === me.pid || peers.some(p => p.presence && p.presence.pid === pid);
+  const guesserOf = g => (g.players[g.r] || {}).pid;
+  const panelOf = g => g.players.filter(p => p.pid !== guesserOf(g));
+  const answered = qa => qa && Object.keys(qa.a || {}).length > 0;
+  const listNames = arr => arr.length <= 1 ? (arr[0] || "") : arr.slice(0, -1).join(", ") + " and " + arr[arr.length - 1];
+
+  // ---------- game rules (run only by the host) ----------
+  function newGame() {
+    return { id: rid(8), host: me.pid, v: 0, t: Date.now(), players: [{ pid: me.pid, name: me.name }], phase: "lobby", r: 0, sec: null, by: null, qa: [], gs: [], res: [], seen: {} };
+  }
+  function resetRound(g) { g.sec = null; g.by = null; g.qa = []; g.gs = []; }
+  function finish(g, ok) {
+    g.res.push({ pid: guesserOf(g), n: deobf(g.sec, keyOf(g)), ok, q: g.qa.length, g: g.gs.length });
+    g.phase = "reveal";
+  }
+  function apply(g, pid, a) {
+    const inGame = g.players.some(p => p.pid === pid);
+    const guesser = guesserOf(g);
+    const isPanel = inGame && pid !== guesser;
+    switch (a.t) {
+      case "join": {
+        const nm = clean(a.name, 24) || "Player";
+        const p = g.players.find(p => p.pid === pid);
+        if (p) { p.name = nm; return true; }
+        if (g.phase === "lobby" && g.players.length < MAXP) { g.players.push({ pid, name: nm }); return true; }
+        return false;
+      }
+      case "start":
+        if (pid === g.host && g.phase === "lobby" && g.players.length >= 3) { g.phase = "pick"; g.r = 0; g.res = []; resetRound(g); return true; }
+        return false;
+      case "pick": {
+        const nm = clean(a.name, 60);
+        if (g.phase === "pick" && isPanel && nm) { g.sec = obf(nm, keyOf(g)); g.by = pid; g.phase = "play"; return true; }
+        return false;
+      }
+      case "repick":
+        if (g.phase === "play" && isPanel && !g.qa.length && !g.gs.length) { resetRound(g); g.phase = "pick"; return true; }
+        return false;
+      case "ask": {
+        const q = clean(a.q, 90);
+        const last = g.qa[g.qa.length - 1];
+        if (g.phase === "play" && pid === guesser && q && g.qa.length < MAXQ && (!last || answered(last))) { g.qa.push({ q, a: {} }); return true; }
+        return false;
+      }
+      case "answer":
+        if (g.phase === "play" && isPanel && g.qa[a.i] && (a.v === "y" || a.v === "n")) { g.qa[a.i].a[pid] = a.v; return true; }
+        return false;
+      case "guess": {
+        const t = clean(a.text, 60);
+        if (g.phase !== "play" || pid !== guesser || !t || g.gs.length >= MAXG) return false;
+        const ok = matches(t, deobf(g.sec, keyOf(g)));
+        g.gs.push({ t, ok });
+        if (ok) finish(g, true); else if (g.gs.length >= MAXG) finish(g, false);
+        return true;
+      }
+      case "accept":
+        if (g.phase === "play" && isPanel && g.gs[a.i] && !g.gs[a.i].ok) { g.gs[a.i].ok = true; finish(g, true); return true; }
+        return false;
+      case "giveup":
+        if (g.phase === "play" && pid === guesser) { finish(g, false); return true; }
+        return false;
+      case "next":
+        if (g.phase === "reveal" && inGame) {
+          g.r++;
+          if (g.r >= g.players.length) g.phase = "done"; else { g.phase = "pick"; resetRound(g); }
+          return true;
+        }
+        return false;
+      case "again":
+        if (g.phase === "done" && inGame) { g.r = 0; g.res = []; resetRound(g); g.phase = "pick"; return true; }
+        return false;
+    }
+    return false;
+  }
+
+  // ---------- networking: everything travels in room presence ----------
+  function packed(g) {
+    // presence is capped at 4 KiB: shorten the oldest questions if a long round gets close
+    let c = JSON.parse(JSON.stringify(g));
+    const size = () => new TextEncoder().encode(JSON.stringify({ pid: me.pid, name: me.name, g: c, acts: [] })).length;
+    let i = 0;
+    while (size() > 3800 && i < c.qa.length) { c.qa[i].q = c.qa[i].q.slice(0, 24) + "…"; i++; }
+    if (size() > 3800) c.seen = {};
+    return c;
+  }
+  function pushPresence() {
+    if (!room) return;
+    room.presence({ pid: me.pid, name: me.name, g: hosted ? packed(hosted) : null, acts: hosted ? [] : acts }).catch(() => {});
+  }
+  function commit() {
+    hosted.v++; hosted.t = Date.now();
+    LS.set("fh.hosted", hosted);
+    pushPresence(); render();
+  }
+  function send(a) {
+    if (hosted) { if (apply(hosted, me.pid, a)) commit(); return; }
+    if (!myGid) return;
+    const last = acts.length ? acts[acts.length - 1].s : 0;
+    acts = acts.concat([{ ...a, gid: myGid, s: Math.max(last + 1, Date.now()) }]).slice(-8);
+    LS.set("fh.acts", acts);
+    pushPresence(); render();
+  }
+  function hostProcess() {
+    if (!hosted) return;
+    let changed = false;
+    for (const p of peers) {
+      const pr = p.presence || {};
+      if (!pr.pid || pr.pid === me.pid || !Array.isArray(pr.acts)) continue;
+      for (const a of pr.acts) {
+        if (!a || a.gid !== hosted.id || typeof a.s !== "number") continue;
+        if (a.s <= (hosted.seen[pr.pid] || 0)) continue;
+        hosted.seen[pr.pid] = a.s;
+        apply(hosted, pr.pid, a);
+        changed = true;
+      }
+    }
+    if (changed) commit();
+  }
+  function hostGames() {
+    const out = [];
+    for (const p of peers) {
+      const pr = p.presence || {};
+      if (pr.pid && pr.pid !== me.pid && pr.g && pr.g.id && Array.isArray(pr.g.players)) out.push({ hostName: clean(pr.name, 24) || "Someone", g: pr.g });
+    }
+    return out;
+  }
+  function currentGame() {
+    if (hosted) return hosted;
+    if (myGid) { const f = hostGames().find(x => x.g.id === myGid); if (f) return f.g; }
+    return null;
+  }
+
+  // ---------- actions from the UI ----------
+  const val = id => (document.getElementById(id) || {}).value || "";
+  const clearVal = id => { const el = document.getElementById(id); if (el) el.value = ""; };
+  const handlers = {
+    saveName() { const n = clean(val("nm"), 24); if (!n) return; me.name = n; LS.set("fh.name", n); if (hosted) { const p = hosted.players.find(p => p.pid === me.pid); if (p) p.name = n; commit(); } else { if (myGid) send({ t: "join", name: n }); pushPresence(); render(); } },
+    rename() { me.name = ""; render(); },
+    host() { myGid = null; LS.set("fh.gid", null); hosted = newGame(); commit(); },
+    join(el) { myGid = el.dataset.gid; myGidHost = el.dataset.host || ""; LS.set("fh.gid", myGid); LS.set("fh.gidHost", myGidHost); send({ t: "join", name: me.name }); },
+    leave() {
+      if (hosted) { hosted = null; LS.set("fh.hosted", null); }
+      myGid = null; LS.set("fh.gid", null); pushPresence(); render();
+    },
+    start() { send({ t: "start" }); },
+    pick() { const n = clean(val("pk"), 60); if (!n) return; ideaOpen = false; send({ t: "pick", name: n }); clearVal("pk"); },
+    idea(el) { const i = document.getElementById("pk"); if (i) { i.value = el.dataset.n; i.focus(); } },
+    ideas() { ideaOpen = !ideaOpen; ideaPick = [...IDEAS].sort(() => Math.random() - .5).slice(0, 8); render(); },
+    repick() { send({ t: "repick" }); },
+    ask() { const q = clean(val("qq"), 90); if (!q) return; send({ t: "ask", q }); clearVal("qq"); },
+    yes(el) { send({ t: "answer", i: +el.dataset.i, v: "y" }); },
+    no(el) { send({ t: "answer", i: +el.dataset.i, v: "n" }); },
+    guess() { const t = clean(val("gg"), 60); if (!t) return; send({ t: "guess", text: t }); clearVal("gg"); },
+    accept(el) { send({ t: "accept", i: +el.dataset.i }); },
+    giveup() { if (!giveArmed) { giveArmed = true; render(); setTimeout(() => { giveArmed = false; render(); }, 4000); return; } giveArmed = false; send({ t: "giveup" }); },
+    next() { send({ t: "next" }); },
+    again() { send({ t: "again" }); },
+    reload() { location.reload(); },
+    copy(el) {
+      const url = el.dataset.url;
+      const done = () => { el.textContent = "Copied"; setTimeout(() => (el.textContent = "Copy link"), 1500); };
+      try { navigator.clipboard.writeText(url).then(done, () => {}); } catch {}
+    }
+  };
+  document.addEventListener("click", e => {
+    const b = e.target.closest("[data-act]"); if (!b || b.disabled) return;
+    const f = handlers[b.dataset.act]; if (f) { e.preventDefault(); f(b); }
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key !== "Enter" || !e.target.matches("input[data-enter]")) return;
+    e.preventDefault(); const f = handlers[e.target.dataset.enter]; if (f) f(e.target);
+  });
+
+  // ---------- rendering ----------
+  function chips(g) {
+    const gu = guesserOf(g);
+    return `<div class="players">${g.players.map(p => `<span class="chip ${online(p.pid) ? "on" : ""} ${g.phase !== "lobby" && g.phase !== "done" && p.pid === gu ? "turn" : ""}"><span class="dot" aria-hidden="true"></span><span class="nm">${esc(p.name)}${p.pid === me.pid ? " (you)" : ""}${p.pid === g.host ? " · host" : ""}</span></span>`).join("")}</div>`;
+  }
+  function qaList(g, guesserView) {
+    if (!g.qa.length) return `<p class="hint">${guesserView ? "No questions yet. Start broad: “Am I a man?” or “Am I alive?”" : "No questions yet."}</p>`;
+    const panel = panelOf(g);
+    return `<ol class="qlist">${g.qa.map((x, i) => `<li><span class="qn">${i + 1}</span><span class="qt">${esc(x.q)}</span><span class="ans">${panel.map(p => {
+      const v = x.a[p.pid];
+      return `<span class="pill ${v === "y" ? "y" : v === "n" ? "n" : ""}">${esc(p.name)}: ${v === "y" ? "Yes" : v === "n" ? "No" : "…"}</span>`;
+    }).join("")}</span></li>`).reverse().join("")}</ol>`;
+  }
+  function scoreTable(g) {
+    if (!g.res.length) return "";
+    return `<div style="overflow-x:auto"><table class="score"><thead><tr><th>Guesser</th><th>Was</th><th>Result</th></tr></thead><tbody>${g.res.map(r => `<tr><td class="nm">${esc(nameOf(g, r.pid))}</td><td class="nm">${esc(r.n)}</td><td>${r.ok ? `<span class="ok">Got it</span> in ${r.q} question${r.q === 1 ? "" : "s"}` : `<span class="bad">Missed</span>`}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function view() {
+    const head = (sub) => `<header><h1>Who's On My Forehead</h1><p class="sub">${sub}</p></header>`;
+    if (!me.name) {
+      return head("Two friends secretly pick a famous person for the third. The guesser asks yes-or-no questions until they work it out.") +
+        `<section class="panel"><label for="nm">Your name</label><div class="row"><input type="text" id="nm" maxlength="24" autocomplete="nickname" placeholder="e.g. Shamika" data-enter="saveName"><button data-act="saveName">Continue</button></div><p class="hint">Your friends will see this name.</p></section>`;
+    }
+    if (room === undefined) return head(`Playing as ${esc(me.name)}`) + `<section class="panel"><p>Connecting to the game room…</p></section>`;
+    if (room === null) {
+      return head(`Playing as ${esc(me.name)}`) + `<section class="panel notice"><h2>Can't reach the game server</h2><p>Check that this phone is online, then reload the page. If it keeps happening, try another browser.</p><div class="row"><button data-act="reload">Reload</button></div></section>`;
+    }
+    const g = currentGame();
+    const meLine = `Playing as <strong>${esc(me.name)}</strong> · <button class="link" data-act="rename">change name</button>`;
+
+    if (!g && myGid) {
+      return head(meLine) + `<section class="panel"><h2>Waiting for ${esc(myGidHost || "the host")}</h2><p>The host's page holds the game. As soon as they open this link again you'll be back in.</p><div class="row"><button class="ghost" data-act="leave">Leave this game</button></div></section>`;
+    }
+    if (!g) {
+      const open = hostGames().filter(x => x.g.phase === "lobby" || x.g.players.some(p => p.pid === me.pid));
+      return head(meLine) +
+        (open.length ? `<section class="panel"><span class="eyebrow">Games open now</span>${open.map(x => `<div class="row" style="justify-content:space-between"><span><strong>${esc(x.hostName)}</strong>'s game · ${x.g.players.length} joined</span><button data-act="join" data-gid="${esc(x.g.id)}" data-host="${esc(x.hostName)}">Join</button></div>`).join("")}</section>` : "") +
+        `<section class="panel"><h2>${open.length ? "Or start your own" : "Start a game"}</h2><p class="hint">One person starts, the others open this same link and tap Join. You need 3 players.</p><div class="row"><button data-act="host">Start a new game</button></div></section>` +
+        `<p class="foot">Waiting for friends? A game they start shows up here by itself.</p>`;
+    }
+
+    const mine = g.players.some(p => p.pid === me.pid);
+    const isHost = g.host === me.pid;
+    if (!mine) {
+      if (g.phase === "lobby") return head(meLine) + `<section class="panel"><p>Joining ${esc(myGidHost)}'s game…</p><div class="row"><button class="ghost" data-act="leave">Cancel</button></div></section>`;
+      return head(meLine) + `<section class="panel"><h2>That game started without you</h2><p>Ask the host to start a new one once this round is over.</p><div class="row"><button class="ghost" data-act="leave">Back</button></div></section>`;
+    }
+
+    const gu = guesserOf(g), iGuess = gu === me.pid;
+    const panelNames = panelOf(g).map(p => p.name);
+    const roundLine = `<span class="eyebrow">Round ${Math.min(g.r + 1, g.players.length)} of ${g.players.length}</span>`;
+    let body = "";
+
+    if (g.phase === "lobby") {
+      const n = g.players.length;
+      body = `<section class="panel"><h2>${n < 3 ? `Waiting for ${3 - n} more player${3 - n === 1 ? "" : "s"}` : "Everyone's here"}</h2>${chips(g)}
+        <p class="hint">Friends open this same link, enter a name, and tap Join under your name.</p>
+        ${isHost ? `<div class="row"><button data-act="start" ${n < 3 ? "disabled" : ""}>Start the game</button><button class="ghost" data-act="leave">Cancel game</button></div>` : `<p>Waiting for ${esc(nameOf(g, g.host))} to start.</p><div class="row"><button class="ghost" data-act="leave">Leave</button></div>`}</section>`;
+    } else if (g.phase === "pick") {
+      if (iGuess) {
+        body = `${roundLine}<div class="note-wrap"><div class="note"><span class="q">?</span><span class="cap">${esc(listNames(panelNames))} are choosing who you are</span></div></div>
+          <section class="panel"><p>Don't peek at their screens. When they lock in a name, your question box opens here.</p></section>`;
+      } else {
+        body = `${roundLine}<section class="panel"><h2>Who should ${esc(nameOf(g, gu))} be?</h2>
+          <p class="hint">Agree with ${esc(listNames(panelNames.filter(x => x !== me.name)) || "your partner")} first. Either of you can lock it in. ${esc(nameOf(g, gu))} never sees this.</p>
+          <div class="row"><input type="text" id="pk" maxlength="60" placeholder="A famous person" autocomplete="off" data-enter="pick"><button data-act="pick">Lock it in</button></div>
+          <div class="row"><button class="link" data-act="ideas">${ideaOpen ? "Hide ideas" : "Need an idea?"}</button></div>
+          ${ideaOpen ? `<div class="ideas">${ideaPick.map(n => `<button data-act="idea" data-n="${esc(n)}">${esc(n)}</button>`).join("")}</div>` : ""}</section>`;
+      }
+    } else if (g.phase === "play") {
+      const last = g.qa[g.qa.length - 1];
+      const waiting = last && !answered(last);
+      const left = MAXG - g.gs.length;
+      if (iGuess) {
+        body = `${roundLine}<div class="note-wrap"><div class="note"><span class="q">?</span><span class="cap">You're someone famous. Ask away.</span></div></div>
+          <section class="panel"><div class="row" style="justify-content:space-between"><label for="qq">Ask a yes/no question</label><span class="counter">${g.qa.length}/${MAXQ}</span></div>
+          ${g.qa.length >= MAXQ ? `<p class="hint">That's all ${MAXQ} questions. Time to guess.</p>` :
+            `<div class="row"><input type="text" id="qq" maxlength="90" placeholder="Am I a sports star?" autocomplete="off" data-enter="ask" ${waiting ? "disabled" : ""}><button data-act="ask" ${waiting ? "disabled" : ""}>Ask</button></div>
+             ${waiting ? `<p class="hint">Waiting for ${esc(listNames(panelNames))} to answer…</p>` : ""}`}
+          </section>
+          <section class="panel"><div class="row" style="justify-content:space-between"><label for="gg">Think you know?</label><span class="counter">${left} guess${left === 1 ? "" : "es"} left</span></div>
+          <div class="row"><input type="text" id="gg" maxlength="60" placeholder="I am…" autocomplete="off" data-enter="guess"><button data-act="guess">Guess</button></div>
+          ${g.gs.length ? `<div>${g.gs.map(x => `<div class="guess"><span class="gt">${esc(x.t)}</span><span class="bad">Wrong</span></div>`).join("")}</div>` : ""}
+          <div class="row"><button class="link" data-act="giveup">${giveArmed ? "Tap again to give up" : "Give up and reveal"}</button></div></section>
+          <section class="panel"><span class="eyebrow">Answers so far</span>${qaList(g, true)}</section>`;
+      } else {
+        const secret = deobf(g.sec, keyOf(g));
+        const myPending = last && !last.a[me.pid];
+        body = `${roundLine}<div class="note-wrap"><div class="note"><span class="cap">${esc(nameOf(g, gu))} is</span><span class="who">${esc(secret)}</span><span class="cap">picked by ${esc(nameOf(g, g.by))}</span></div></div>
+          ${last && myPending ? `<section class="panel"><span class="eyebrow">Question ${g.qa.length}</span><p class="ask-now">${esc(last.q)}</p><div class="yesno"><button class="yes" data-act="yes" data-i="${g.qa.length - 1}">Yes</button><button class="no" data-act="no" data-i="${g.qa.length - 1}">No</button></div></section>`
+            : `<section class="panel"><p>${g.qa.length ? "You've answered. " : ""}Waiting for ${esc(nameOf(g, gu))} to ${g.qa.length ? "ask the next question or guess" : "ask the first question"}.</p>${!g.qa.length && !g.gs.length ? `<div class="row"><button class="link" data-act="repick">Change the name</button></div>` : ""}</section>`}
+          ${g.gs.length ? `<section class="panel"><span class="eyebrow">Guesses</span><div>${g.gs.map((x, i) => `<div class="guess"><span class="gt">${esc(x.t)}</span><button class="ghost" data-act="accept" data-i="${i}">Count it as right</button></div>`).join("")}</div><p class="hint">Use this if they got it but spelled it differently.</p></section>` : ""}
+          <section class="panel"><span class="eyebrow">Questions · ${g.qa.length}/${MAXQ}</span>${qaList(g, false)}
+          ${g.qa.length ? `<p class="hint">Answered one wrong? Tell them out loud.</p>` : ""}</section>`;
+      }
+    } else if (g.phase === "reveal") {
+      const r = g.res[g.res.length - 1] || {};
+      const lastRound = g.r + 1 >= g.players.length;
+      body = `${roundLine}<div class="note-wrap"><div class="note"><span class="cap">${esc(nameOf(g, r.pid))}${r.pid === me.pid ? " (you)" : ""} was</span><span class="who">${esc(r.n)}</span><span class="cap">${r.ok ? `Got it in ${r.q} question${r.q === 1 ? "" : "s"}` : "Not guessed this time"}</span></div></div>
+        <section class="panel"><p>${lastRound ? "That was the last round." : `Next up: <strong>${esc(nameOf(g, g.players[g.r + 1].pid))}</strong> guesses, and the others pick.`}</p>
+        <div class="row"><button data-act="next">${lastRound ? "See final scores" : "Next round"}</button></div></section>
+        <section class="panel"><span class="eyebrow">So far</span>${scoreTable(g)}</section>`;
+    } else if (g.phase === "done") {
+      const ranked = [...g.res].sort((a, b) => (b.ok - a.ok) || (a.q - b.q) || (a.g - b.g));
+      const best = ranked[0];
+      body = `<section class="panel"><span class="eyebrow">Final</span>
+        <p class="big">${best && best.ok ? `${esc(nameOf(g, best.pid))} wins` : "Nobody cracked it"}</p>
+        <p class="hint">Fewest questions wins. Ties go to fewer guesses.</p>${scoreTable(g)}
+        <div class="row"><button data-act="again">Play again</button><button class="ghost" data-act="leave">${isHost ? "End game" : "Leave"}</button></div></section>`;
+    }
+    const hostAway = !isHost && !online(g.host);
+    return head(meLine) + (g.phase !== "lobby" ? chips(g) : "") +
+      (hostAway ? `<section class="panel notice"><p>${esc(nameOf(g, g.host))} (the host) has dropped out. The game resumes when they open the link again.</p></section>` : "") + body;
+  }
+
+  function render() {
+    const app = document.getElementById("app");
+    // keep what people are typing across live updates
+    const saved = {}; app.querySelectorAll("input[id]").forEach(i => (saved[i.id] = i.value));
+    const f = document.activeElement && document.activeElement.id;
+    const sel = f && document.activeElement.selectionStart;
+    app.innerHTML = view();
+    for (const [id, v] of Object.entries(saved)) { const el = document.getElementById(id); if (el && v) el.value = v; }
+    if (f) { const el = document.getElementById(f); if (el && !el.disabled) { el.focus(); try { el.setSelectionRange(sel, sel); } catch {} } }
+  }
+
+  // Live sync: Supabase Realtime presence. Each open page publishes one object;
+  // the host's object carries the game, everyone else's carries their recent moves.
+  const SB_URL = "https://qqlusijewdmwtgwlbktn.supabase.co";
+  const SB_KEY = "sb_publishable_0x_6DNCbL_Kczf3Tu4yQJg_YuZnYqhD";
+  const CHANNEL = "forehead-lobby-v1";
+  function onSync(list) { peers = list; hostProcess(); render(); }
+  function connect() {
+    if (window.__FH_MOCK) { // used only by local tests
+      window.__FH_MOCK(me.pid, onSync).then(r => { room = r; pushPresence(); render(); });
+      return;
+    }
+    if (!window.supabase || !window.supabase.createClient) { room = null; render(); return; }
+    const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: false }, realtime: { params: { eventsPerSecond: 10 } } });
+    const ch = sb.channel(CHANNEL, { config: { presence: { key: me.pid + "-" + rid(4) } } });
+    const timer = setTimeout(() => { if (room === undefined) { room = null; render(); } }, 15000);
+    ch.on("presence", { event: "sync" }, () => {
+      const st = ch.presenceState();
+      onSync(Object.values(st).map(arr => ({ presence: arr[arr.length - 1] || {} })));
+    });
+    ch.subscribe(status => {
+      if (status === "SUBSCRIBED") {
+        clearTimeout(timer);
+        room = { presence: o => ch.track(o) };
+        pushPresence(); render();
+      }
+    });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) pushPresence(); });
+  }
+  render();
+  connect();
+})();
+</script>
+</body>
+</html>
