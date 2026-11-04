@@ -235,6 +235,37 @@ table.score td.nm { overflow-wrap: anywhere; }
 .steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; counter-reset: s; }
 .steps li { display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: start; color: var(--muted); }
 .steps li::before { counter-increment: s; content: counter(s); width: 26px; height: 26px; border-radius: 50%; background: var(--card-2); color: var(--ink); font-weight: 700; font-size: .85rem; display: grid; place-items: center; }
+
+/* simultaneous board: everyone's forehead at once */
+.board { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px; }
+.pcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px 8px 10px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; min-width: 0; position: relative; }
+.pcard.turn { border-color: var(--note); box-shadow: 0 0 0 2px color-mix(in srgb, var(--note) 35%, transparent); }
+.pcard .nm { font-weight: 700; font-size: .9rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcard .role { min-height: 1em; }
+.pcard.turn .role { color: var(--note); }
+.mnote { width: 100%; min-height: 58px; background: var(--note); color: var(--note-ink); border-radius: 2px; transform: rotate(-2deg); display: grid; place-items: center; padding: 6px; font-family: var(--f-display); font-size: .98rem; line-height: 1.1; overflow-wrap: anywhere; box-shadow: 0 8px 12px -8px rgba(0,0,0,.6); }
+.pcard:nth-child(2n) .mnote { transform: rotate(1.8deg); }
+.mnote.mine { font-size: 2rem; }
+.mnote.solved { background: var(--yes); color: var(--yes-ink); }
+.mnote.blank { background: transparent; border: 2px dashed var(--line); color: var(--muted); font-family: var(--f-body); font-size: .8rem; transform: none; box-shadow: none; }
+.pickcard { display: flex; flex-direction: column; gap: 12px; }
+.pickhead { display: flex; align-items: center; gap: 10px; }
+.locked { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; background: var(--felt); border-radius: 12px; padding: 10px 12px; }
+.locked .big-sm { font-family: var(--f-display); font-size: 1.3rem; color: var(--note); overflow-wrap: anywhere; min-width: 0; }
+.turnbanner { display: flex; align-items: center; gap: 12px; }
+.turnbanner h2 { flex: 1; min-width: 0; }
+.res { font-weight: 700; font-size: .8rem; padding: 2px 9px; border-radius: 999px; }
+.res.y { background: color-mix(in srgb, var(--yes) 22%, transparent); color: var(--yes); }
+.res.n { background: color-mix(in srgb, var(--no) 22%, transparent); color: var(--no); }
+.log li .who-l { font-size: .78rem; color: var(--muted); }
+details.more summary { cursor: pointer; color: var(--muted); font-size: .9rem; list-style: none; }
+details.more summary::-webkit-details-marker { display: none; }
+details.more summary::before { content: "▸ "; }
+details.more[open] summary::before { content: "▾ "; }
+
+.msg, .sys, .empty-chat { flex-shrink: 0; }
+.sheet .msgs { min-height: 0; }
+.sheet .chat { display: flex; flex-direction: column; overflow: hidden; }
 </style>
 </head>
 <body>
@@ -242,11 +273,11 @@ table.score td.nm { overflow-wrap: anywhere; }
 <div id="layer"></div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
 <script>
 (() => {
   "use strict";
-  const MAXQ = 20, MAXG = 3, MAXP = 5, MAXCHAT = 60;
+  const MAXP = 5, MAXCHAT = 80, VER = 2;
   const COLORS = ["#ff9f7a", "#5ee0c1", "#c3a3ff", "#ffd166", "#7cc8ff"];
   const IDEAS = ["Taylor Swift","Lionel Messi","Cristiano Ronaldo","Albert Einstein","Barack Obama","Elon Musk","Shah Rukh Khan","Beyoncé","Michael Jackson","Leonardo DiCaprio","Queen Elizabeth II","Mahatma Gandhi","Nelson Mandela","Virat Kohli","Serena Williams","Steve Jobs","Marie Curie","Usain Bolt","Rihanna","Oprah Winfrey","Kumar Sangakkara","Muttiah Muralitharan","Sanath Jayasuriya","A. R. Rahman","Jackie Chan","Lady Gaga","Charlie Chaplin","Freddie Mercury","Mark Zuckerberg","Kim Kardashian","Pope Francis","Bob Marley","Dwayne Johnson","Adele","MrBeast","Lewis Hamilton","Shakira","Bruce Lee","Neymar","Billie Eilish"];
 
@@ -260,21 +291,22 @@ table.score td.nm { overflow-wrap: anywhere; }
   const me = { pid: LS.get("fh.pid", null) || rid(), name: LS.get("fh.name", "") };
   LS.set("fh.pid", me.pid);
   let hosted = LS.get("fh.hosted", null);
-  if (hosted && (Date.now() - (hosted.t || 0) > 12 * 3600e3 || !hosted.chat)) { hosted = null; LS.set("fh.hosted", null); }
-  let ended = null;                       // a game I ended as host: {id}
+  if (hosted && (Date.now() - (hosted.t || 0) > 12 * 3600e3 || hosted.ver !== VER)) { hosted = null; LS.set("fh.hosted", null); }
+  let ended = null;
   let myGid = LS.get("fh.gid", null);
   let myGidHost = LS.get("fh.gidHost", "");
   let acts = LS.get("fh.acts", []);
   let room, peers = [];
   let connected = false;
-  const ui = { ideaOpen: false, ideaPick: [], giveArmed: false, sheet: false, tab: "all", editingName: false };
-  let readUpTo = LS.get("fh.read", {});   // chat tab -> last read message id count
-  let lastSeen = { q: -1, ans: "", phase: "", players: "" };
+  const ui = { ideaFor: null, ideaPick: [], giveArmed: false, sheet: false, tab: "a", editingName: false };
+  let readUpTo = LS.get("fh.read", {});
+  let lastSeen = {};
 
   // ---------- helpers ----------
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const clean = (s, n) => String(s ?? "").replace(/[\u0000-\u001f\u007f​-‏‪-‮⁠-⁤﻿]/g, "").replace(/\s+/g, " ").trim().slice(0, n);
-  const keyOf = (g, r = g.r) => g.id + ":" + r;
+  const secKey = (g, pid) => g.id + ":s:" + pid;
+  const chatKey = (g, pid) => g.id + ":t:" + pid;
   function obf(s, k) { return [...s].map((c, i) => (c.codePointAt(0) ^ (k.charCodeAt(i % k.length) * 7)).toString(36)).join("."); }
   function deobf(o, k) { try { return o.split(".").map((x, i) => String.fromCodePoint(parseInt(x, 36) ^ (k.charCodeAt(i % k.length) * 7))).join(""); } catch { return ""; } }
   const norm = s => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, " ").replace(/\s+/g, " ").trim().replace(/^the /, "");
@@ -305,10 +337,11 @@ table.score td.nm { overflow-wrap: anywhere; }
   const initials = n => (String(n).trim().split(/\s+/).map(w => [...w][0] || "").join("").slice(0, 2) || "?").toUpperCase();
   const onlinePids = () => new Set(peers.map(p => p.presence && p.presence.pid).filter(Boolean).concat(connected ? [me.pid] : []));
   const online = pid => onlinePids().has(pid);
-  const guesserOf = g => (g.players[g.r] || {}).pid;
-  const panelOf = g => g.players.filter(p => p.pid !== guesserOf(g));
-  const answered = qa => qa && Object.keys(qa.a || {}).length > 0;
+  const others = (g, pid) => g.players.filter(p => p.pid !== pid);
   const listNames = arr => arr.length <= 1 ? (arr[0] || "") : arr.slice(0, -1).join(", ") + " and " + arr[arr.length - 1];
+  const secretOf = (g, pid) => g.sec[pid] ? deobf(g.sec[pid].x, secKey(g, pid)) : "";
+  const isDone = (g, pid) => g.fin.some(f => f.pid === pid);
+  const finOf = (g, pid) => g.fin.find(f => f.pid === pid);
   const av = (g, pid, cls = "", withStatus = true) => {
     const on = online(pid);
     return `<span class="av ${cls} ${withStatus ? (on ? "on" : "away") : ""}" style="--c:${colorOf(g, pid)}" aria-hidden="true">${esc(initials(nameOf(g, pid)))}${withStatus ? '<i class="st"></i>' : ""}</span>`;
@@ -317,94 +350,119 @@ table.score td.nm { overflow-wrap: anywhere; }
   function toast(html) {
     const box = document.getElementById("toasts");
     const el = document.createElement("div"); el.className = "toast"; el.innerHTML = html;
-    box.appendChild(el); while (box.children.length > 3) box.firstChild.remove();
+    box.appendChild(el); while (box.children.length > 2) box.firstChild.remove();
     setTimeout(() => el.remove(), 3200);
   }
 
   // ---------- game rules (run only on the host's phone) ----------
-  function newGame(prev) {
-    return { id: rid(8), host: me.pid, v: 0, t: Date.now(), players: prev ? prev.players : [{ pid: me.pid, name: me.name }], phase: "lobby", r: 0, sec: null, by: null, qa: [], gs: [], res: [], seen: {}, chat: [], n: 0 };
+  // phases: lobby -> pick (every pair picks for the third, all at once) -> play (take turns) -> done
+  function newGame() {
+    return { ver: VER, id: rid(8), host: me.pid, v: 0, t: Date.now(), players: [{ pid: me.pid, name: me.name }], phase: "lobby", sec: {}, turn: null, qa: [], gs: [], fin: [], seen: {}, chat: [], n: 0 };
   }
-  function sys(g, text) { g.n++; g.chat.push({ i: g.n, k: "s", x: text, ts: Date.now() }); g.chat = g.chat.slice(-MAXCHAT); }
-  function resetRound(g) { g.sec = null; g.by = null; g.qa = []; g.gs = []; }
-  function finish(g, ok) {
-    const n = deobf(g.sec, keyOf(g));
-    g.res.push({ pid: guesserOf(g), n, ok, q: g.qa.length, g: g.gs.length });
-    g.phase = "reveal";
-    sys(g, ok ? `${nameOf(g, guesserOf(g))} got it: ${n}` : `${nameOf(g, guesserOf(g))} was ${n}`);
+  function sys(g, text, loud) { g.n++; g.chat.push({ i: g.n, k: "s", x: text, ts: Date.now(), ...(loud ? { l: 1 } : {}) }); g.chat = g.chat.slice(-MAXCHAT); }
+  const active = g => g.players.filter(p => !isDone(g, p.pid));
+  function nextTurn(g) {
+    const order = g.players.map(p => p.pid);
+    const start = order.indexOf(g.turn);
+    for (let k = 1; k <= order.length; k++) {
+      const pid = order[(start + k) % order.length];
+      if (!isDone(g, pid)) { g.turn = pid; return; }
+    }
+    g.turn = null;
+  }
+  function checkEnd(g) {
+    if (!active(g).length) { g.phase = "done"; g.turn = null; sys(g, "Everyone's done. Final scores are in.", 1); return true; }
+    return false;
+  }
+  function finishPlayer(g, pid, ok) {
+    const n = secretOf(g, pid);
+    g.fin.push({ pid, ok, n, q: g.qa.filter(x => x.p === pid).length, g: g.gs.filter(x => x.p === pid).length });
+    sys(g, ok ? `${nameOf(g, pid)} got it: ${n}!` : `${nameOf(g, pid)} gave up. They were ${n}.`, 1);
+  }
+  function resolveQuestion(g) {
+    // a question is settled once everyone else who is here has answered
+    const q = g.qa[g.qa.length - 1];
+    if (!q || q.res) return false;
+    const on = onlinePids();
+    const need = others(g, q.p).filter(p => on.has(p.pid) || p.pid === g.host);
+    const got = Object.keys(q.a);
+    if (!got.length || need.some(p => !q.a[p.pid])) return false;
+    q.res = Object.values(q.a).every(v => v === "y") ? "y" : "n";
+    if (q.res === "n") { nextTurn(g); sys(g, `No. ${nameOf(g, g.turn)}'s turn.`); }
+    return true;
   }
   function apply(g, pid, a) {
     const inGame = !!player(g, pid);
-    const guesser = guesserOf(g);
-    const isPanel = inGame && pid !== guesser && g.phase !== "lobby";
     switch (a.t) {
       case "join": {
         const nm = clean(a.name, 20) || "Player";
         const p = player(g, pid);
         if (p) { if (p.name !== nm) { sys(g, `${p.name} is now ${nm}`); p.name = nm; } return true; }
-        if (g.phase === "lobby" && g.players.length < MAXP) { g.players.push({ pid, name: nm }); sys(g, `${nm} joined`); return true; }
+        if (g.phase === "lobby" && g.players.length < MAXP) { g.players.push({ pid, name: nm }); sys(g, `${nm} joined`, 1); return true; }
         return false;
       }
-      case "quit": {
+      case "quit":
         if (!inGame || pid === g.host || g.phase !== "lobby") return false;
-        sys(g, `${nameOf(g, pid)} left`);
+        sys(g, `${nameOf(g, pid)} left`, 1);
         g.players = g.players.filter(p => p.pid !== pid); return true;
-      }
       case "start":
-        if (pid === g.host && g.phase === "lobby" && g.players.length >= 3) { g.phase = "pick"; g.r = 0; g.res = []; resetRound(g); sys(g, `Game on. ${nameOf(g, guesserOf(g))} guesses first.`); return true; }
+        if (pid === g.host && g.phase === "lobby" && g.players.length >= 3) { g.phase = "pick"; g.sec = {}; g.qa = []; g.gs = []; g.fin = []; sys(g, "Pick a famous person for each friend. Use the secret chats."); return true; }
         return false;
       case "pick": {
         const nm = clean(a.name, 50);
-        if (g.phase === "pick" && isPanel && nm) { g.sec = obf(nm, keyOf(g)); g.by = pid; g.phase = "play"; sys(g, `The name is locked in. ${nameOf(g, guesser)}, start asking.`); return true; }
-        return false;
+        if (g.phase !== "pick" || !inGame || !nm || a.for === pid || !player(g, a.for)) return false;
+        g.sec[a.for] = { x: obf(nm, secKey(g, a.for)), by: pid };
+        sys(g, `A name is locked in for ${nameOf(g, a.for)}`);
+        if (g.players.every(p => g.sec[p.pid])) { g.phase = "play"; g.turn = g.players[0].pid; sys(g, `Everyone has a name. ${nameOf(g, g.turn)} goes first.`, 1); }
+        return true;
       }
-      case "repick":
-        if (g.phase === "play" && isPanel && !g.qa.length && !g.gs.length) { resetRound(g); g.phase = "pick"; return true; }
-        return false;
+      case "unpick":
+        if (g.phase !== "pick" || !inGame || a.for === pid || !g.sec[a.for]) return false;
+        delete g.sec[a.for]; return true;
       case "ask": {
         const q = clean(a.q, 100);
         const last = g.qa[g.qa.length - 1];
-        if (g.phase === "play" && pid === guesser && q && g.qa.length < MAXQ && (!last || answered(last))) { g.qa.push({ q, a: {} }); return true; }
+        if (g.phase === "play" && pid === g.turn && q && (!last || last.res)) { g.qa.push({ p: pid, q, a: {}, res: null }); return true; }
         return false;
       }
-      case "answer":
-        if (g.phase === "play" && isPanel && g.qa[a.i] && (a.v === "y" || a.v === "n")) { g.qa[a.i].a[pid] = a.v; return true; }
+      case "answer": {
+        const q = g.qa[a.i];
+        if (g.phase === "play" && inGame && q && !q.res && q.p !== pid && (a.v === "y" || a.v === "n")) { q.a[pid] = a.v; resolveQuestion(g); return true; }
         return false;
+      }
       case "guess": {
         const t = clean(a.text, 50);
-        if (g.phase !== "play" || pid !== guesser || !t || g.gs.length >= MAXG) return false;
-        const ok = matches(t, deobf(g.sec, keyOf(g)));
-        g.gs.push({ t, ok });
-        if (ok) finish(g, true); else if (g.gs.length >= MAXG) finish(g, false);
+        const last = g.qa[g.qa.length - 1];
+        if (g.phase !== "play" || pid !== g.turn || !t || (last && !last.res)) return false;
+        const ok = matches(t, secretOf(g, pid));
+        g.gs.push({ p: pid, t, ok });
+        if (ok) { finishPlayer(g, pid, true); if (!checkEnd(g)) { nextTurn(g); sys(g, `${nameOf(g, g.turn)}'s turn.`); } }
+        else { nextTurn(g); sys(g, `${nameOf(g, pid)} guessed “${t}”. Wrong! ${nameOf(g, g.turn)}'s turn.`, 1); }
         return true;
       }
-      case "accept":
-        if (g.phase === "play" && isPanel && g.gs[a.i] && !g.gs[a.i].ok) { g.gs[a.i].ok = true; finish(g, true); return true; }
-        return false;
+      case "accept": {
+        const x = g.gs[a.i];
+        if (g.phase !== "play" || !inGame || !x || x.ok || x.p === pid || isDone(g, x.p)) return false;
+        x.ok = true; finishPlayer(g, x.p, true);
+        if (!checkEnd(g) && (g.turn === x.p || isDone(g, g.turn))) nextTurn(g);
+        return true;
+      }
       case "giveup":
-        if (g.phase === "play" && pid === guesser) { finish(g, false); return true; }
-        return false;
-      case "next":
-        if (g.phase === "reveal" && inGame) {
-          g.r++;
-          if (g.r >= g.players.length) { g.phase = "done"; sys(g, "That's every round. Final scores are in."); }
-          else { g.phase = "pick"; resetRound(g); sys(g, `Round ${g.r + 1}: ${nameOf(g, guesserOf(g))} guesses.`); }
-          return true;
-        }
-        return false;
+        if (g.phase !== "play" || !inGame || isDone(g, pid)) return false;
+        finishPlayer(g, pid, false);
+        if (!checkEnd(g) && g.turn === pid) { nextTurn(g); sys(g, `${nameOf(g, g.turn)}'s turn.`); }
+        return true;
       case "again":
-        if (g.phase === "done" && inGame) { g.r = 0; g.res = []; resetRound(g); g.phase = "pick"; sys(g, `New game. ${nameOf(g, guesserOf(g))} guesses first.`); return true; }
+        if (g.phase === "done" && inGame) { g.phase = "pick"; g.sec = {}; g.qa = []; g.gs = []; g.fin = []; g.turn = null; g.players.push(g.players.shift()); sys(g, "New game. Pick new names."); return true; }
         return false;
       case "chat": {
         const x = clean(a.x, 200);
         if (!x || !inGame) return false;
         if (a.k === "t") {
-          // team chat belongs to the current round's pickers; the guesser can't post or read it
-          if (!isPanel || a.r !== g.r) return false;
-          g.n++; g.chat.push({ i: g.n, k: "t", r: g.r, p: pid, x: obf(x, keyOf(g) + ":t"), ts: Date.now() });
-        } else {
-          g.n++; g.chat.push({ i: g.n, k: "a", p: pid, x, ts: Date.now() });
-        }
+          // a secret chat about player a.about; that player can never post in it or read it
+          if (a.about === pid || !player(g, a.about)) return false;
+          g.n++; g.chat.push({ i: g.n, k: "t", about: a.about, p: pid, x: obf(x, chatKey(g, a.about)), ts: Date.now() });
+        } else { g.n++; g.chat.push({ i: g.n, k: "a", p: pid, x, ts: Date.now() }); }
         g.chat = g.chat.slice(-MAXCHAT);
         return true;
       }
@@ -412,8 +470,7 @@ table.score td.nm { overflow-wrap: anywhere; }
     return false;
   }
 
-  // presence of players, watched by the host, so everyone sees "left" and "is back"
-  const offlineSince = {}; let announcedOff = {};
+  const offlineSince = {}; const announcedOff = {};
   function hostWatchPresence() {
     if (!hosted || !connected) return false;
     const on = onlinePids(); let changed = false; const now = Date.now();
@@ -421,25 +478,20 @@ table.score td.nm { overflow-wrap: anywhere; }
       if (p.pid === me.pid) continue;
       if (on.has(p.pid)) {
         delete offlineSince[p.pid];
-        if (announcedOff[p.pid]) { delete announcedOff[p.pid]; sys(hosted, `${p.name} is back`); changed = true; }
+        if (announcedOff[p.pid]) { delete announcedOff[p.pid]; sys(hosted, `${p.name} is back`, 1); changed = true; }
       } else {
         offlineSince[p.pid] = offlineSince[p.pid] || now;
-        if (!announcedOff[p.pid] && now - offlineSince[p.pid] > 7000) { announcedOff[p.pid] = true; sys(hosted, `${p.name} left the page`); changed = true; }
+        if (!announcedOff[p.pid] && now - offlineSince[p.pid] > 20000) { announcedOff[p.pid] = true; sys(hosted, `${p.name} went away`, 1); changed = true; }
       }
     }
+    if (hosted.phase === "play" && resolveQuestion(hosted)) changed = true;
     return changed;
   }
 
-  // ---------- networking: everything travels in realtime presence ----------
-  function myPresence() {
-    return { pid: me.pid, name: me.name, g: hosted || ended || null, acts: hosted ? [] : acts };
-  }
+  // ---------- networking: realtime presence ----------
+  function myPresence() { return { pid: me.pid, name: me.name, g: hosted || ended || null, acts: hosted ? [] : acts }; }
   function pushPresence() { if (room) Promise.resolve(room.presence(myPresence())).catch(() => {}); }
-  function commit() {
-    hosted.v++; hosted.t = Date.now();
-    LS.set("fh.hosted", hosted);
-    pushPresence(); render();
-  }
+  function commit() { hosted.v++; hosted.t = Date.now(); LS.set("fh.hosted", hosted); pushPresence(); render(); }
   function send(a) {
     if (hosted) { if (apply(hosted, me.pid, a)) commit(); return; }
     if (!myGid) return;
@@ -458,8 +510,7 @@ table.score td.nm { overflow-wrap: anywhere; }
         if (!a || a.gid !== hosted.id || typeof a.s !== "number") continue;
         if (a.s <= (hosted.seen[pr.pid] || 0)) continue;
         hosted.seen[pr.pid] = a.s;
-        apply(hosted, pr.pid, a);
-        changed = true;
+        apply(hosted, pr.pid, a); changed = true;
       }
     }
     if (hostWatchPresence()) changed = true;
@@ -469,7 +520,7 @@ table.score td.nm { overflow-wrap: anywhere; }
     const out = [];
     for (const p of peers) {
       const pr = p.presence || {};
-      if (pr.pid && pr.pid !== me.pid && pr.g && pr.g.id && Array.isArray(pr.g.players)) out.push({ hostName: clean(pr.name, 20) || "Someone", g: pr.g });
+      if (pr.pid && pr.pid !== me.pid && pr.g && pr.g.id && Array.isArray(pr.g.players) && (pr.g.ended || pr.g.ver === VER)) out.push({ hostName: clean(pr.name, 20) || "Someone", g: pr.g });
     }
     return out;
   }
@@ -479,12 +530,15 @@ table.score td.nm { overflow-wrap: anywhere; }
     return null;
   }
 
-  // ---------- chat visibility ----------
-  function iAmPanel(g) { return g.phase !== "lobby" && g.phase !== "done" && !!player(g, me.pid) && guesserOf(g) !== me.pid; }
+  // ---------- chats ----------
+  // tab "a" = everyone; tab "t:<pid>" = secret chat about that player
+  const inGameNow = g => g.phase !== "lobby" && !!player(g, me.pid);
+  function tabsFor(g) { return inGameNow(g) ? ["a"].concat(others(g, me.pid).map(p => "t:" + p.pid)) : ["a"]; }
   function visibleChat(g, tab) {
-    if (tab === "t") {
-      if (!iAmPanel(g)) return [];
-      return g.chat.filter(m => m.k === "t" && m.r === g.r).map(m => ({ ...m, x: deobf(m.x, keyOf(g, m.r) + ":t") }));
+    if (tab.startsWith("t:")) {
+      const about = tab.slice(2);
+      if (about === me.pid) return [];
+      return g.chat.filter(m => m.k === "t" && m.about === about).map(m => ({ ...m, x: deobf(m.x, chatKey(g, about)) }));
     }
     return g.chat.filter(m => m.k === "a" || m.k === "s");
   }
@@ -495,18 +549,20 @@ table.score td.nm { overflow-wrap: anywhere; }
   }
   function chatHtml(g, tab, inputId) {
     const list = visibleChat(g, tab);
-    const team = tab === "t";
+    const team = tab.startsWith("t:");
+    const about = team ? tab.slice(2) : null;
+    const mates = team ? others(g, about).filter(p => p.pid !== me.pid).map(p => p.name) : [];
     const msgs = list.length ? list.map(m => m.k === "s" ? `<div class="sys">${esc(m.x)}</div>` :
       `<div class="msg ${m.p === me.pid ? "mine" : ""}">${m.p === me.pid ? "" : av(g, m.p, "sm", false)}<div class="bub">${m.p === me.pid ? "" : `<span class="by">${esc(nameOf(g, m.p))}</span>`}${esc(m.x)}</div></div>`).join("")
-      : `<div class="empty-chat">${team ? `Only you and ${esc(listNames(panelOf(g).filter(p => p.pid !== me.pid).map(p => p.name)))} can see this. Agree on a name here.` : "Say hi. Everyone can see this chat."}</div>`;
+      : `<div class="empty-chat">${team ? `Only you and ${esc(listNames(mates))} see this. ${esc(nameOf(g, about))} can't.` : "Say hi. Everyone can see this chat."}</div>`;
     return `<div class="chat ${team ? "team" : ""}"><div class="msgs" data-scroll="${inputId}">${msgs}</div>
-      <div class="composer"><input type="text" id="${inputId}" maxlength="200" placeholder="${team ? "Message your teammate" : "Message everyone"}" autocomplete="off" enterkeyhint="send" data-enter="chat" data-k="${team ? "t" : "a"}"><button data-act="chat" data-for="${inputId}" data-k="${team ? "t" : "a"}" aria-label="Send">Send</button></div></div>`;
+      <div class="composer"><input type="text" id="${inputId}" maxlength="200" placeholder="${team ? `Talk about ${esc(nameOf(g, about))}…` : "Message everyone"}" autocomplete="off" enterkeyhint="send" data-enter="chat" data-k="${team ? "t" : "a"}" data-about="${esc(about || "")}"><button data-act="chat" data-for="${inputId}" data-k="${team ? "t" : "a"}" data-about="${esc(about || "")}" aria-label="Send">Send</button></div></div>`;
   }
 
   // ---------- UI actions ----------
   const val = id => (document.getElementById(id) || {}).value || "";
   const clearVal = id => { const el = document.getElementById(id); if (el) el.value = ""; };
-  const shareUrl = () => location.href.split("#")[0];
+  const shareUrl = () => location.href.split("#")[0].split("?")[0];
   const handlers = {
     saveName() {
       const n = clean(val("nm"), 20); if (!n) return;
@@ -520,14 +576,14 @@ table.score td.nm { overflow-wrap: anywhere; }
     join(el) { myGid = el.dataset.gid; myGidHost = el.dataset.host || ""; LS.set("fh.gid", myGid); LS.set("fh.gidHost", myGidHost); send({ t: "join", name: me.name }); },
     leave() {
       if (hosted) { ended = { id: hosted.id, ended: true, players: [], phase: "ended" }; hosted = null; LS.set("fh.hosted", null); }
-      else if (myGid) { send({ t: "quit" }); }
+      else if (myGid) send({ t: "quit" });
       myGid = null; LS.set("fh.gid", null); ui.sheet = false; pushPresence(); render();
     },
     start() { send({ t: "start" }); },
-    pick() { const n = clean(val("pk"), 50); if (!n) return; ui.ideaOpen = false; send({ t: "pick", name: n }); clearVal("pk"); },
-    idea(el) { const i = document.getElementById("pk"); if (i) { i.value = el.dataset.n; i.focus(); } },
-    ideas() { ui.ideaOpen = !ui.ideaOpen; ui.ideaPick = [...IDEAS].sort(() => Math.random() - .5).slice(0, 8); render(); },
-    repick() { send({ t: "repick" }); },
+    pick(el) { const f = el.dataset.for, id = "pk-" + f; const n = clean(val(id), 50); if (!n) return; ui.ideaFor = null; send({ t: "pick", for: f, name: n }); clearVal(id); },
+    unpick(el) { send({ t: "unpick", for: el.dataset.for }); },
+    ideas(el) { const f = el.dataset.for; ui.ideaFor = ui.ideaFor === f ? null : f; ui.ideaPick = [...IDEAS].sort(() => Math.random() - .5).slice(0, 8); render(); },
+    idea(el) { const i = document.getElementById("pk-" + el.dataset.for); if (i) { i.value = el.dataset.n; i.focus(); } },
     ask() { const q = clean(val("qq"), 100); if (!q) return; send({ t: "ask", q }); clearVal("qq"); },
     yes(el) { buzz(15); send({ t: "answer", i: +el.dataset.i, v: "y" }); },
     no(el) { buzz(15); send({ t: "answer", i: +el.dataset.i, v: "n" }); },
@@ -537,25 +593,20 @@ table.score td.nm { overflow-wrap: anywhere; }
       if (!ui.giveArmed) { ui.giveArmed = true; render(); setTimeout(() => { ui.giveArmed = false; render(); }, 4000); return; }
       ui.giveArmed = false; send({ t: "giveup" });
     },
-    next() { send({ t: "next" }); },
     again() { send({ t: "again" }); },
     chat(el) {
       const id = el.dataset.for || el.id; const x = clean(val(id), 200); if (!x) return;
-      const g = currentGame(); if (!g) return;
-      send({ t: "chat", k: el.dataset.k, r: g.r, x }); clearVal(id);
+      send({ t: "chat", k: el.dataset.k, about: el.dataset.about || undefined, x }); clearVal(id);
       const i = document.getElementById(id); if (i) i.focus();
     },
-    openChat() { const g = currentGame(); ui.sheet = true; ui.tab = g && iAmPanel(g) && g.phase !== "reveal" ? ui.tab : "a"; render(); },
+    openChat() { ui.sheet = true; const g = currentGame(); if (g && !tabsFor(g).includes(ui.tab)) ui.tab = "a"; render(); },
     closeChat() { ui.sheet = false; render(); },
     tab(el) { ui.tab = el.dataset.tab; render(); },
     copy(el) {
       const done = () => { el.textContent = "Copied"; setTimeout(() => { el.textContent = "Copy"; }, 1600); };
       try { navigator.clipboard.writeText(shareUrl()).then(done, () => selectInvite()); } catch { selectInvite(); }
     },
-    share() {
-      if (navigator.share) navigator.share({ title: "Who's On My Forehead", text: "Join my game", url: shareUrl() }).catch(() => {});
-      else handlers.copy(document.querySelector("[data-act=copy]") || {});
-    },
+    share() { if (navigator.share) navigator.share({ title: "Who's On My Forehead", text: "Join my game", url: shareUrl() }).catch(() => {}); },
     reload() { location.reload(); }
   };
   function selectInvite() { const c = document.querySelector(".invite code"); if (!c) return; const r = document.createRange(); r.selectNodeContents(c); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
@@ -571,6 +622,7 @@ table.score td.nm { overflow-wrap: anywhere; }
 
   // ---------- views ----------
   const CHAT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>`;
+  const dotsWait = `<span class="typing"><i></i><i></i><i></i></span>`;
   function topBar() {
     return `<div class="top"><span class="brand"><i class="mini" aria-hidden="true"></i>Who's On My Forehead</span>${me.name ? `<button class="me" data-act="rename" title="Change your name"><span class="conn ${connected ? "" : "off"}" aria-label="${connected ? "Connected" : "Not connected"}"></span>${esc(me.name)}</button>` : ""}</div>`;
   }
@@ -579,60 +631,63 @@ table.score td.nm { overflow-wrap: anywhere; }
       <div class="row"><input type="text" id="nm" maxlength="20" autocomplete="nickname" placeholder="Your name" value="${first ? "" : esc(me.name)}" data-enter="saveName" enterkeyhint="done"><button class="note-btn" data-act="saveName">${first ? "Let's play" : "Save"}</button></div>
       ${first ? "" : `<button class="link" data-act="cancelRename">Cancel</button>`}</section>`;
   }
-  function strip(g) {
-    const gu = guesserOf(g);
-    return `<div class="roundline"><span class="eyebrow">Round ${Math.min(g.r + 1, g.players.length)} of ${g.players.length}</span><span class="dots">${g.players.map((p, i) => `<i class="${i < g.r ? "done" : i === g.r ? "now" : ""}"></i>`).join("")}</span></div>
-      <div class="strip">${g.players.map(p => `<div class="who-card ${p.pid === gu ? "g" : ""}">${av(g, p.pid)}<span class="nm">${esc(p.name)}${p.pid === me.pid ? " (you)" : ""}</span><span class="role">${p.pid === gu ? "Guessing" : "Picking"}</span></div>`).join("")}</div>`;
+  function board(g) {
+    return `<div class="board">${g.players.map(p => {
+      const mine = p.pid === me.pid, f = finOf(g, p.pid);
+      let note;
+      if (f) note = `<div class="mnote ${f.ok ? "solved" : ""}">${esc(f.n)}</div>`;
+      else if (mine) note = `<div class="mnote mine">?</div>`;
+      else if (g.sec[p.pid]) note = `<div class="mnote">${esc(secretOf(g, p.pid))}</div>`;
+      else note = `<div class="mnote blank">not picked yet</div>`;
+      const role = f ? (f.ok ? "Solved" : "Gave up") : g.phase === "play" && g.turn === p.pid ? "Their turn" : "";
+      return `<div class="pcard ${g.phase === "play" && g.turn === p.pid ? "turn" : ""}">${av(g, p.pid)}<span class="nm">${esc(p.name)}${mine ? " (you)" : ""}</span>${note}<span class="role">${mine && g.phase === "play" && g.turn === p.pid ? "Your turn" : role}</span></div>`;
+    }).join("")}</div>`;
   }
-  function qaList(g, guesserView) {
-    if (!g.qa.length) return `<p class="hint">${guesserView ? "No questions yet. Start broad, like “Am I alive?” or “Am I a sports star?”" : "No questions yet."}</p>`;
-    const panel = panelOf(g);
-    return `<ol class="qlist">${g.qa.map((x, i) => `<li><span class="qn">${i + 1}</span><span class="qt">${esc(x.q)}</span><span class="ans">${panel.map(p => {
-      const v = x.a[p.pid];
-      return `<span class="pill ${v === "y" ? "y" : v === "n" ? "n" : ""}">${esc(p.name)} · ${v === "y" ? "Yes" : v === "n" ? "No" : "…"}</span>`;
-    }).join("")}</span></li>`).reverse().join("")}</ol>`;
+  function myClues(g) {
+    const mineQ = g.qa.filter(x => x.p === me.pid && x.res);
+    const mineG = g.gs.filter(x => x.p === me.pid);
+    if (!mineQ.length && !mineG.length) return `<p class="hint">Nothing yet. Start broad, like “Am I alive?” or “Am I a sports star?”</p>`;
+    return `<ol class="qlist">${mineQ.map((x, i) => `<li><span class="qn">${i + 1}</span><span class="qt">${esc(x.q)}</span><span class="ans"><span class="res ${x.res}">${x.res === "y" ? "Yes" : "No"}</span>${Object.keys(x.a).length > 1 && new Set(Object.values(x.a)).size > 1 ? `<span class="hint">${others(g, me.pid).map(p => `${esc(p.name)}: ${x.a[p.pid] === "y" ? "yes" : x.a[p.pid] === "n" ? "no" : "-"}`).join(", ")}</span>` : ""}</span></li>`).reverse().join("")}</ol>
+      ${mineG.length ? `<div>${mineG.map(x => `<div class="guess"><span class="gt">${esc(x.t)}</span><span class="bad">Wrong guess</span></div>`).join("")}</div>` : ""}`;
   }
-  function meter(g) { return `<div class="meter" aria-hidden="true">${Array.from({ length: MAXQ }, (_, i) => `<i class="${i < g.qa.length ? "used" : ""}"></i>`).join("")}</div>`; }
+  function fullLog(g) {
+    const done = g.qa.filter(x => x.res);
+    if (!done.length) return `<p class="hint">No questions yet.</p>`;
+    return `<ol class="qlist log">${done.slice(-25).map(x => `<li><span class="qn">${av(g, x.p, "sm", false)}</span><span class="qt"><span class="who-l">${esc(nameOf(g, x.p))}${x.p === me.pid ? " (you)" : ` · is ${esc(secretOf(g, x.p) || (finOf(g, x.p) || {}).n || "")}`}</span><br>${esc(x.q)}</span><span class="ans"><span class="res ${x.res}">${x.res === "y" ? "Yes" : "No"}</span></span></li>`).reverse().join("")}</ol>`;
+  }
   function scoreTable(g) {
-    if (!g.res.length) return "";
-    return `<div style="overflow-x:auto"><table class="score"><thead><tr><th>Player</th><th>Was</th><th>Result</th></tr></thead><tbody>${g.res.map(r => `<tr><td><span class="pn">${av(g, r.pid, "sm", false)}<span class="nm">${esc(nameOf(g, r.pid))}</span></span></td><td class="nm">${esc(r.n)}</td><td>${r.ok ? `<span class="ok">Got it</span><br><span class="hint">${r.q} question${r.q === 1 ? "" : "s"}</span>` : `<span class="bad">Missed</span>`}</td></tr>`).join("")}</tbody></table></div>`;
+    const ranked = [...g.fin].map((f, i) => ({ ...f, order: i })).sort((a, b) => (b.ok - a.ok) || (a.order - b.order));
+    return `<div style="overflow-x:auto"><table class="score"><thead><tr><th>#</th><th>Player</th><th>Was</th><th>Questions</th></tr></thead><tbody>${ranked.map((r, i) => `<tr><td>${r.ok ? i + 1 : "–"}</td><td><span class="pn">${av(g, r.pid, "sm", false)}<span class="nm">${esc(nameOf(g, r.pid))}</span></span></td><td class="nm">${esc(r.n)}</td><td>${r.ok ? r.q : `<span class="bad">Gave up</span>`}</td></tr>`).join("")}</tbody></table></div>`;
   }
 
   function view() {
     if (!me.name) {
       return topBar() + `<h1 class="hero-title">Who's on my <span>forehead?</span></h1>
-        <ol class="steps"><li>Three friends open this link on their own phones.</li><li>Each round, two of you secretly pick a famous person for the third, using your private team chat.</li><li>The guesser asks yes/no questions and has three guesses. Take turns until everyone has guessed.</li></ol>` + nameForm(true);
+        <ol class="steps"><li>Three friends open this link on their own phones.</li><li>Every pair secretly picks a famous person for the third, in private chats. Everyone gets a name at the same time.</li><li>You see everyone's name except your own. Take turns asking yes/no questions. A “No” or a wrong guess passes the turn. First to guess wins.</li></ol>` + nameForm(true);
     }
     if (ui.editingName) return topBar() + nameForm(false);
-    if (room === undefined) return topBar() + `<section class="panel"><div class="waiting"><span class="typing"><i></i><i></i><i></i></span>Connecting to the game…</div></section>`;
+    if (room === undefined) return topBar() + `<section class="panel"><div class="waiting">${dotsWait}Connecting to the game…</div></section>`;
     if (room === null) return topBar() + `<section class="panel notice"><h2>Can't reach the game server</h2><p class="hint">Check that this phone is online, then reload.</p><div class="row"><button data-act="reload">Reload</button></div></section>`;
 
     const g = currentGame();
     if (!g && myGid) {
-      const ghost = hostGames().find(x => x.g.id === myGid);
-      return topBar() + `<section class="panel"><h2>${esc(myGidHost || "The host")} is away</h2><p class="hint">The game lives on the host's phone. When they open the link again, you're straight back in.</p><div class="waiting"><span class="typing"><i></i><i></i><i></i></span>Waiting for them</div><div class="row"><button class="ghost" data-act="leave">Leave this game</button></div></section>`;
+      return topBar() + `<section class="panel"><h2>${esc(myGidHost || "The host")} is away</h2><p class="hint">The game lives on the host's phone. When they open the link again, you're straight back in.</p><div class="waiting">${dotsWait}Waiting for them</div><div class="row"><button class="ghost" data-act="leave">Leave this game</button></div></section>`;
     }
     if (!g) {
       const open = hostGames().filter(x => !x.g.ended && (x.g.phase === "lobby" || x.g.players.some(p => p.pid === me.pid)));
       return topBar() +
-        (open.length ? `<section class="panel"><span class="eyebrow">Join a friend</span>${open.map(x => `<div class="row spread"><span class="pn"><span class="av" style="--c:${COLORS[0]}">${esc(initials(x.hostName))}</span><span><strong>${esc(x.hostName)}'s game</strong><br><span class="hint">${x.g.players.length} of 3+ seats taken</span></span></span><button class="note-btn" data-act="join" data-gid="${esc(x.g.id)}" data-host="${esc(x.hostName)}">Join</button></div>`).join("")}</section>` : "") +
+        (open.length ? `<section class="panel"><span class="eyebrow">Join a friend</span>${open.map(x => `<div class="row spread"><span class="pn"><span class="av" style="--c:${COLORS[0]}">${esc(initials(x.hostName))}</span><span><strong>${esc(x.hostName)}'s game</strong><br><span class="hint">${x.g.players.length} joined</span></span></span><button class="note-btn" data-act="join" data-gid="${esc(x.g.id)}" data-host="${esc(x.hostName)}">Join</button></div>`).join("")}</section>` : "") +
         `<section class="panel ${open.length ? "flat" : ""}"><h2>${open.length ? "Or host your own" : "Host a game"}</h2><p class="hint">One person hosts. The others open this same link, and the game appears on their screen with a Join button.</p><button class="${open.length ? "ghost" : "note-btn"} wide" data-act="host">Host a new game</button></section>` +
         (open.length ? "" : `<p class="foot">Friend already hosting? Their game shows up here by itself.</p>`);
     }
-    if (g.ended) {
-      return topBar() + `<section class="panel"><h2>The host ended this game</h2><div class="row"><button data-act="leave">Back to start</button></div></section>`;
-    }
+    if (g.ended) return topBar() + `<section class="panel"><h2>The host ended this game</h2><div class="row"><button data-act="leave">Back to start</button></div></section>`;
 
     const mine = !!player(g, me.pid);
     const isHost = g.host === me.pid;
     if (!mine) {
-      if (g.phase === "lobby") return topBar() + `<section class="panel"><div class="waiting"><span class="typing"><i></i><i></i><i></i></span>Taking a seat at ${esc(myGidHost)}'s game…</div><button class="link" data-act="leave">Cancel</button></section>`;
+      if (g.phase === "lobby") return topBar() + `<section class="panel"><div class="waiting">${dotsWait}Taking a seat at ${esc(myGidHost)}'s game…</div><button class="link" data-act="leave">Cancel</button></section>`;
       return topBar() + `<section class="panel"><h2>That game started without you</h2><p class="hint">Ask the host to start a new one after this game.</p><div class="row"><button class="ghost" data-act="leave">Back</button></div></section>`;
     }
-
-    const gu = guesserOf(g), iGuess = gu === me.pid;
-    const panelNames = panelOf(g).map(p => p.name);
-    const partner = listNames(panelOf(g).filter(p => p.pid !== me.pid).map(p => p.name)) || "your teammate";
     const hostAway = !isHost && !online(g.host);
     let body = "";
 
@@ -646,105 +701,93 @@ table.score td.nm { overflow-wrap: anywhere; }
         }).join("")}</div>
         <span class="eyebrow">Invite</span>
         <div class="invite"><code>${esc(shareUrl())}</code><button class="ghost" data-act="copy">Copy</button>${navigator.share ? `<button class="ghost" data-act="share">Share</button>` : ""}</div>
-        ${isHost ? `<button class="note-btn wide" data-act="start" ${n < 3 ? "disabled" : ""}>${n < 3 ? "Start when 3 have joined" : `Start with ${n} players`}</button>` : `<div class="waiting"><span class="typing"><i></i><i></i><i></i></span>Waiting for ${esc(nameOf(g, g.host))} to start</div>`}
+        ${isHost ? `<button class="note-btn wide" data-act="start" ${n < 3 ? "disabled" : ""}>${n < 3 ? "Start when 3 have joined" : `Start with ${n} players`}</button>` : `<div class="waiting">${dotsWait}Waiting for ${esc(nameOf(g, g.host))} to start</div>`}
         <button class="link" data-act="leave">${isHost ? "Cancel game" : "Leave"}</button></section>`;
     } else if (g.phase === "pick") {
-      if (iGuess) {
-        body = strip(g) + `<div class="note-wrap"><div class="note"><span class="q">?</span><span class="cap">${esc(listNames(panelNames))} are picking who you are</span></div></div>
-          <section class="panel"><div class="waiting"><span class="typing"><i></i><i></i><i></i></span>They're discussing in their secret chat</div><p class="hint">No peeking at their phones. Your question box opens here as soon as they lock it in.</p></section>`;
-      } else {
-        body = strip(g) + `<section class="panel"><span class="secret-tag">● Secret from ${esc(nameOf(g, gu))}</span><h2>Who should ${esc(nameOf(g, gu))} be?</h2>
-          ${chatHtml(g, "t", "tc-inline")}</section>
-          <section class="panel"><label for="pk" class="eyebrow">Lock in the name once you agree</label>
-          <div class="row"><input type="text" id="pk" maxlength="50" placeholder="A famous person" autocomplete="off" data-enter="pick" enterkeyhint="done"><button class="note-btn" data-act="pick">Lock in</button></div>
-          <button class="link" data-act="ideas">${ui.ideaOpen ? "Hide ideas" : "Stuck? Show ideas"}</button>
-          ${ui.ideaOpen ? `<div class="ideas">${ui.ideaPick.map(n => `<button data-act="idea" data-n="${esc(n)}">${esc(n)}</button>`).join("")}</div>` : ""}
-          <p class="hint">Either of you can lock it in.</p></section>`;
-      }
+      const targets = others(g, me.pid);
+      const left = g.players.filter(p => !g.sec[p.pid]).length;
+      body = board(g) + `<section class="panel"><h2>Pick a famous person for each friend</h2><p class="hint">Each friend has a secret chat that they can't see. Agree with the others there, then lock it in. Play starts once all ${g.players.length} names are in (${g.players.length - left} done).</p></section>` +
+        targets.map(t => {
+          const mates = others(g, t.pid).filter(p => p.pid !== me.pid).map(p => p.name);
+          const s = g.sec[t.pid];
+          return `<section class="panel pickcard"><div class="pickhead">${av(g, t.pid)}<div><h2>Who should ${esc(t.name)} be?</h2><span class="secret-tag">● Secret from ${esc(t.name)} · with ${esc(listNames(mates))}</span></div></div>
+            ${chatHtml(g, "t:" + t.pid, "tc-" + t.pid)}
+            ${s ? `<div class="locked"><span><span class="eyebrow">Locked in by ${esc(nameOf(g, s.by))}</span><br><span class="big-sm">${esc(secretOf(g, t.pid))}</span></span><button class="ghost" data-act="unpick" data-for="${esc(t.pid)}">Change</button></div>`
+              : `<div class="row"><input type="text" id="pk-${esc(t.pid)}" maxlength="50" placeholder="A famous person for ${esc(t.name)}" autocomplete="off" data-enter="pick" data-for="${esc(t.pid)}" enterkeyhint="done"><button class="note-btn" data-act="pick" data-for="${esc(t.pid)}">Lock in</button></div>
+                 <button class="link" data-act="ideas" data-for="${esc(t.pid)}">${ui.ideaFor === t.pid ? "Hide ideas" : "Stuck? Show ideas"}</button>
+                 ${ui.ideaFor === t.pid ? `<div class="ideas">${ui.ideaPick.map(n => `<button data-act="idea" data-for="${esc(t.pid)}" data-n="${esc(n)}">${esc(n)}</button>`).join("")}</div>` : ""}`}
+          </section>`;
+        }).join("") +
+        (g.sec[me.pid] ? `<section class="panel flat"><p>Your friends have picked your name. No peeking!</p></section>` : `<section class="panel flat"><div class="waiting">${dotsWait}Your friends are choosing your name</div></section>`);
     } else if (g.phase === "play") {
       const last = g.qa[g.qa.length - 1];
-      const waiting = last && !answered(last);
-      const left = MAXG - g.gs.length;
-      if (iGuess) {
-        body = strip(g) + `<div class="note-wrap"><div class="note"><span class="q">?</span><span class="cap">You're someone famous. Ask away.</span></div></div>
-          <section class="panel"><div class="row spread"><label for="qq"><h2>Ask a yes/no question</h2></label><span class="counter">${g.qa.length}/${MAXQ}</span></div>${meter(g)}
-          ${g.qa.length >= MAXQ ? `<p class="hint">That's all ${MAXQ} questions. Time to guess.</p>` :
-            waiting ? `<p class="ask-now">${esc(last.q)}</p><div class="waiting"><span class="typing"><i></i><i></i><i></i></span>Waiting for ${esc(listNames(panelNames))}</div>` :
-            `<div class="row"><input type="text" id="qq" maxlength="100" placeholder="Am I a sports star?" autocomplete="off" data-enter="ask" enterkeyhint="send"><button data-act="ask">Ask</button></div>`}
-          </section>
-          <section class="panel"><div class="row spread"><label for="gg"><h2>Think you know?</h2></label><span class="counter">${left} guess${left === 1 ? "" : "es"} left</span></div>
-          <div class="row"><input type="text" id="gg" maxlength="50" placeholder="I am…" autocomplete="off" data-enter="guess" enterkeyhint="go"><button class="note-btn" data-act="guess">Guess</button></div>
-          ${g.gs.length ? `<div>${g.gs.map(x => `<div class="guess"><span class="gt">${esc(x.t)}</span><span class="bad">Wrong</span></div>`).join("")}</div>` : ""}
-          <button class="link" data-act="giveup">${ui.giveArmed ? "Tap again to give up" : "Give up and reveal"}</button></section>
-          <section class="panel"><span class="eyebrow">Your answers</span>${qaList(g, true)}</section>`;
+      const pending = last && !last.res ? last : null;
+      const myTurn = g.turn === me.pid, iDone = isDone(g, me.pid);
+      let action;
+      if (pending && pending.p === me.pid) {
+        action = `<section class="panel"><span class="eyebrow">You asked</span><p class="ask-now">${esc(pending.q)}</p><div class="waiting">${dotsWait}Waiting for ${esc(listNames(others(g, me.pid).filter(p => !pending.a[p.pid]).map(p => p.name)))}</div></section>`;
+      } else if (pending) {
+        const answeredMe = pending.a[me.pid];
+        action = `<section class="panel"><span class="eyebrow">${esc(nameOf(g, pending.p))} asks · they are <strong style="color:var(--note)">${esc(secretOf(g, pending.p))}</strong></span><p class="ask-now">${esc(pending.q)}</p>
+          ${answeredMe ? `<div class="waiting">${dotsWait}You said ${answeredMe === "y" ? "Yes" : "No"}. Waiting for the others</div>` : `<div class="yesno"><button class="yes" data-act="yes" data-i="${g.qa.length - 1}">Yes</button><button class="no" data-act="no" data-i="${g.qa.length - 1}">No</button></div>`}</section>`;
+      } else if (myTurn) {
+        action = `<section class="panel"><div class="turnbanner">${av(g, me.pid, "lg")}<h2>Your turn. Ask a yes/no question.</h2></div>
+          <p class="hint">Keep asking while they say Yes. A No passes the turn.</p>
+          <div class="row"><input type="text" id="qq" maxlength="100" placeholder="Am I a sports star?" autocomplete="off" data-enter="ask" enterkeyhint="send"><button data-act="ask">Ask</button></div>
+          <label for="gg" class="eyebrow">Or make a guess (a wrong guess passes the turn)</label>
+          <div class="row"><input type="text" id="gg" maxlength="50" placeholder="I am…" autocomplete="off" data-enter="guess" enterkeyhint="go"><button class="note-btn" data-act="guess">Guess</button></div></section>`;
       } else {
-        const secret = deobf(g.sec, keyOf(g));
-        const myPending = last && !last.a[me.pid];
-        body = strip(g) + `<div class="note-wrap"><div class="note"><span class="cap">${esc(nameOf(g, gu))} is</span><span class="who">${esc(secret)}</span><span class="cap">picked by ${esc(nameOf(g, g.by))}</span></div></div>
-          ${last && myPending ? `<section class="panel"><span class="eyebrow">${esc(nameOf(g, gu))} asks · question ${g.qa.length}</span><p class="ask-now">${esc(last.q)}</p><div class="yesno"><button class="yes" data-act="yes" data-i="${g.qa.length - 1}">Yes</button><button class="no" data-act="no" data-i="${g.qa.length - 1}">No</button></div></section>`
-            : `<section class="panel"><div class="waiting"><span class="typing"><i></i><i></i><i></i></span>${g.qa.length ? `Answered. Waiting for ${esc(nameOf(g, gu))}'s next move` : `Waiting for ${esc(nameOf(g, gu))}'s first question`}</div>${!g.qa.length && !g.gs.length ? `<button class="link" data-act="repick">Change the name</button>` : ""}</section>`}
-          ${g.gs.length ? `<section class="panel"><span class="eyebrow">${esc(nameOf(g, gu))}'s guesses</span><div>${g.gs.map((x, i) => `<div class="guess"><span class="gt">${esc(x.t)}</span><button class="ghost" data-act="accept" data-i="${i}">Count it as right</button></div>`).join("")}</div><p class="hint">Use this if they got it but spelled it differently.</p></section>` : ""}
-          <section class="panel"><div class="row spread"><span class="eyebrow">Questions</span><span class="counter">${g.qa.length}/${MAXQ}</span></div>${meter(g)}${qaList(g, false)}</section>`;
+        action = `<section class="panel"><div class="turnbanner">${av(g, g.turn, "lg")}<h2>${esc(nameOf(g, g.turn))}'s turn</h2></div><div class="waiting">${dotsWait}Waiting for their question</div></section>`;
       }
-    } else if (g.phase === "reveal") {
-      const r = g.res[g.res.length - 1] || {};
-      const lastRound = g.r + 1 >= g.players.length;
-      body = strip(g) + `<div class="note-wrap"><div class="note"><span class="cap">${esc(nameOf(g, r.pid))}${r.pid === me.pid ? " (you)" : ""} was</span><span class="who">${esc(r.n)}</span><span class="cap">${r.ok ? `Got it in ${r.q} question${r.q === 1 ? "" : "s"}` : "Not guessed this time"}</span></div></div>
-        <section class="panel"><p>${lastRound ? "That was the last round." : `Next: <strong>${esc(nameOf(g, g.players[g.r + 1].pid))}</strong> guesses, and the other two pick.`}</p>
-        <button class="note-btn wide" data-act="next">${lastRound ? "See final scores" : "Next round"}</button></section>
-        <section class="panel"><span class="eyebrow">Scoreboard</span>${scoreTable(g)}</section>`;
+      const wrong = g.gs.map((x, i) => ({ ...x, i })).filter(x => !x.ok && x.p !== me.pid && !isDone(g, x.p)).slice(-3);
+      body = board(g) + action +
+        (wrong.length ? `<section class="panel"><span class="eyebrow">Recent wrong guesses</span><div>${wrong.map(x => `<div class="guess"><span class="gt">${esc(nameOf(g, x.p))}: ${esc(x.t)}</span><button class="ghost" data-act="accept" data-i="${x.i}">Count it as right</button></div>`).join("")}</div><p class="hint">Use this if they got it but spelled it differently.</p></section>` : "") +
+        (iDone ? `<section class="panel flat"><p>You're done${finOf(g, me.pid).ok ? " and on the scoreboard" : ""}. Keep answering for the others.</p></section>` :
+          `<section class="panel"><div class="row spread"><span class="eyebrow">Your clues</span><span class="counter">${g.qa.filter(x => x.p === me.pid).length} asked</span></div>${myClues(g)}<button class="link" data-act="giveup">${ui.giveArmed ? "Tap again to give up" : "Give up and reveal my name"}</button></section>`) +
+        `<section class="panel"><details class="more"><summary>Everyone's questions</summary>${fullLog(g)}</details></section>`;
     } else if (g.phase === "done") {
-      const ranked = [...g.res].sort((a, b) => (b.ok - a.ok) || (a.q - b.q) || (a.g - b.g));
-      const best = ranked[0];
-      body = `<section class="panel"><span class="eyebrow">Final</span>
-        <p class="big">${best && best.ok ? `${esc(nameOf(g, best.pid))} wins` : "Nobody cracked it"}</p>
-        <p class="hint">Fewest questions wins. Ties go to fewer guesses.</p>${scoreTable(g)}
-        <button class="note-btn wide" data-act="again">Play another round</button><button class="link" data-act="leave">${isHost ? "End game" : "Leave"}</button></section>`;
+      const winner = g.fin.find(f => f.ok);
+      body = board(g) + `<section class="panel"><span class="eyebrow">Final</span>
+        <p class="big">${winner ? `${esc(nameOf(g, winner.pid))} wins` : "Nobody cracked it"}</p>
+        <p class="hint">Ranked by who guessed first.</p>${scoreTable(g)}
+        <button class="note-btn wide" data-act="again">Play again</button><button class="link" data-act="leave">${isHost ? "End game" : "Leave"}</button></section>`;
     }
     return topBar() + (hostAway ? `<section class="panel notice"><p><strong>${esc(nameOf(g, g.host))}</strong> (the host) dropped out. The game picks up when they open the link again.</p></section>` : "") + body;
   }
 
   function layer(g) {
     if (!g || g.ended || !player(g, me.pid)) return "";
-    const canTeam = iAmPanel(g) && g.phase !== "reveal";
-    if (!canTeam && ui.tab === "t") ui.tab = "a";
-    const uA = unread(g, "a"), uT = canTeam ? unread(g, "t") : 0;
-    const inlineTeam = g.phase === "pick" && canTeam;
-    const badge = uA + (inlineTeam ? 0 : uT);
+    const tabs = tabsFor(g);
+    if (!tabs.includes(ui.tab)) ui.tab = "a";
+    const inlineTeams = g.phase === "pick";
+    const badge = tabs.reduce((s, t) => s + (inlineTeams && t !== "a" ? 0 : unread(g, t)), 0);
     let html = `<button class="fab" data-act="openChat" aria-label="Open chat">${CHAT_ICON}${badge ? `<span class="badge">${badge > 9 ? "9+" : badge}</span>` : ""}</button>`;
     if (ui.sheet) {
       html += `<div class="scrim" data-act="closeChat"></div><div class="sheet" role="dialog" aria-label="Chat"><div class="grab"></div>
         <div class="row spread"><h2>Chat</h2><button class="link" data-act="closeChat">Close</button></div>
-        ${canTeam ? `<div class="tabs" role="tablist"><button role="tab" data-act="tab" data-tab="t" aria-selected="${ui.tab === "t"}">Team (secret)${uT ? '<span class="dotn"></span>' : ""}</button><button role="tab" data-act="tab" data-tab="a" aria-selected="${ui.tab === "a"}">Everyone${uA ? '<span class="dotn"></span>' : ""}</button></div>` : ""}
-        ${ui.tab === "t" && canTeam ? `<span class="secret-tag">● ${esc(nameOf(g, guesserOf(g)))} can't see this</span>` : ""}
-        ${chatHtml(g, ui.tab === "t" && canTeam ? "t" : "a", ui.tab === "t" && canTeam ? "tc-sheet" : "ac-sheet")}</div>`;
+        ${tabs.length > 1 ? `<div class="tabs" role="tablist">${tabs.map(t => `<button role="tab" data-act="tab" data-tab="${esc(t)}" aria-selected="${ui.tab === t}">${t === "a" ? "Everyone" : `About ${esc(nameOf(g, t.slice(2)))}`}${unread(g, t) ? '<span class="dotn"></span>' : ""}</button>`).join("")}</div>` : ""}
+        ${ui.tab !== "a" ? `<span class="secret-tag">● ${esc(nameOf(g, ui.tab.slice(2)))} can't see this</span>` : ""}
+        ${chatHtml(g, ui.tab, "sheet-" + ui.tab.replace(":", "-"))}</div>`;
     }
     return html;
   }
 
-  // notice what changed since the last render: toasts and buzzes
   function noticeChanges(g) {
     if (!g || g.ended) return;
-    const prevPlayers = lastSeen.players;
-    const nowPlayers = g.players.map(p => p.pid).join(",");
     if (lastSeen.gid === g.id) {
-      // system lines and messages that arrived since last time
       for (const m of g.chat) {
         if (m.i <= (lastSeen.chatTop || 0)) continue;
-        if (m.k === "s") toast(esc(m.x));
+        if (m.k === "s") { if (m.l) toast(esc(m.x)); }
         else if (m.p !== me.pid && !ui.sheet) {
           if (m.k === "a") toast(`${av(g, m.p, "", false)}${esc(nameOf(g, m.p))}: ${esc(m.x.slice(0, 40))}`);
-          else if (iAmPanel(g) && m.r === g.r && g.phase !== "pick") toast(`${av(g, m.p, "", false)}Team: ${esc(deobf(m.x, keyOf(g, m.r) + ":t").slice(0, 40))}`);
+          else if (m.about !== me.pid && g.phase !== "pick") toast(`${av(g, m.p, "", false)}About ${esc(nameOf(g, m.about))}: ${esc(deobf(m.x, chatKey(g, m.about)).slice(0, 40))}`);
         }
       }
       const last = g.qa[g.qa.length - 1];
-      if (g.phase === "play" && g.qa.length - 1 > lastSeen.q && iAmPanel(g)) buzz([40, 60, 40]);
-      const ansSig = last ? Object.keys(last.a).length + ":" + g.qa.length : "";
-      if (g.phase === "play" && guesserOf(g) === me.pid && ansSig !== lastSeen.ans && last && answered(last)) buzz(40);
-      if (g.phase !== lastSeen.phase && (g.phase === "play" || g.phase === "reveal")) buzz(80);
-      lastSeen.ans = ansSig;
+      if (g.phase === "play" && last && g.qa.length > (lastSeen.qn || 0) && last.p !== me.pid) buzz([40, 60, 40]);
+      if (g.phase === "play" && g.turn === me.pid && lastSeen.turn !== me.pid) buzz(120);
     }
-    lastSeen = { ...lastSeen, gid: g.id, q: g.qa.length - 1, phase: g.phase, players: nowPlayers, chatTop: g.chat.length ? g.chat[g.chat.length - 1].i : 0 };
+    lastSeen = { gid: g.id, qn: g.qa.length, turn: g.turn, chatTop: g.chat.length ? g.chat[g.chat.length - 1].i : 0 };
   }
 
   function render() {
@@ -755,12 +798,14 @@ table.score td.nm { overflow-wrap: anywhere; }
     const sel = f && document.activeElement.selectionStart;
     const stuck = {};
     document.querySelectorAll(".msgs[data-scroll]").forEach(m => (stuck[m.dataset.scroll] = m.scrollHeight - m.scrollTop - m.clientHeight < 40 ? -1 : m.scrollTop));
+    const openDetails = [...document.querySelectorAll("details.more")].map(d => d.open);
     const g = currentGame();
     noticeChanges(g);
     app.innerHTML = view();
     lay.innerHTML = layer(g);
-    if (g && ui.sheet) markRead(g, ui.tab === "t" && iAmPanel(g) ? "t" : "a");
-    if (g && g.phase === "pick" && iAmPanel(g)) markRead(g, "t");
+    document.querySelectorAll("details.more").forEach((d, i) => { if (openDetails[i]) d.open = true; });
+    if (g && ui.sheet) markRead(g, ui.tab);
+    if (g && g.phase === "pick") others(g, me.pid).forEach(p => markRead(g, "t:" + p.pid));
     for (const [id, v] of Object.entries(saved)) { const el = document.getElementById(id); if (el && v && id !== "nm") el.value = v; }
     document.querySelectorAll(".msgs[data-scroll]").forEach(m => { const s = stuck[m.dataset.scroll]; m.scrollTop = s === undefined || s === -1 ? m.scrollHeight : s; });
     if (f) { const el = document.getElementById(f); if (el && !el.disabled) { el.focus({ preventScroll: true }); try { el.setSelectionRange(sel, sel); } catch {} } }
@@ -771,31 +816,43 @@ table.score td.nm { overflow-wrap: anywhere; }
   const SB_KEY = "sb_publishable_0x_6DNCbL_Kczf3Tu4yQJg_YuZnYqhD";
   const CHANNEL = "forehead-lobby-v1";
   function onSync(list) { peers = list; hostProcess(); render(); }
-  function connect() {
-    if (window.__FH_MOCK) { // local tests only
-      window.__FH_MOCK(me.pid, onSync).then(r => { room = r; connected = true; pushPresence(); render(); });
-      return;
-    }
-    if (!window.supabase || !window.supabase.createClient) { room = null; render(); return; }
-    const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: false }, realtime: { params: { eventsPerSecond: 10 } } });
-    const ch = sb.channel(CHANNEL, { config: { presence: { key: me.pid + "-" + rid(4) } } });
-    const timer = setTimeout(() => { if (room === undefined) { room = null; render(); } }, 15000);
+  let sb = null, ch = null, joinTimer = null;
+  function openChannel() {
+    if (ch) { try { sb.removeChannel(ch); } catch {} }
+    ch = sb.channel(CHANNEL, { config: { presence: { key: me.pid + "-" + rid(4) } } });
+    const mine = ch;
     ch.on("presence", { event: "sync" }, () => {
+      if (mine !== ch) return;
       const st = ch.presenceState();
       onSync(Object.values(st).map(arr => ({ presence: arr[arr.length - 1] || {} })));
     });
     ch.subscribe(status => {
-      if (status === "SUBSCRIBED") {
-        clearTimeout(timer); connected = true;
-        room = { presence: o => ch.track(o) };
-        pushPresence(); render();
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-        connected = false; render();
-      }
+      if (mine !== ch) return;
+      if (status === "SUBSCRIBED") { clearTimeout(joinTimer); connected = true; room = { presence: o => mine.track(o) }; pushPresence(); render(); }
+      else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") { connected = false; render(); }
     });
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) pushPresence(); });
   }
-  // host re-checks who is still here every few seconds
+  function connect() {
+    if (window.__FH_MOCK) {
+      window.__FH_MOCK(me.pid, onSync).then(r => { room = r; connected = true; pushPresence(); render(); });
+      return;
+    }
+    if (!window.supabase || !window.supabase.createClient) { room = null; render(); return; }
+    // worker: keeps the connection's heartbeat going while this tab is in the background
+    sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: false }, realtime: { worker: true, heartbeatIntervalMs: 15000, params: { eventsPerSecond: 10 } } });
+    joinTimer = setTimeout(() => { if (room === undefined) { room = null; render(); } }, 15000);
+    openChannel();
+    // coming back to the page (phone unlocked, tab switched back): rejoin at once if the line dropped
+    const revive = () => {
+      if (document.hidden || !ch) return;
+      if (ch.state !== "joined") { connected = false; render(); openChannel(); }
+      else pushPresence();
+    };
+    document.addEventListener("visibilitychange", revive);
+    window.addEventListener("focus", revive);
+    window.addEventListener("online", revive);
+    setInterval(() => { if (ch && !document.hidden && ch.state !== "joined" && ch.state !== "joining") openChannel(); }, 10000);
+  }
   setInterval(() => { if (hosted && hostWatchPresence()) commit(); }, 3000);
   render();
   connect();
